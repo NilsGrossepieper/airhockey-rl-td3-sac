@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.distributions import Normal
+import torch.optim as optim
 
 # Sequence model:
 #   h_t = f_ϕ(h_{t-1}, z_{t-1}, a_{t-1})
@@ -115,6 +116,7 @@ class DynamicsPredictor(nn.Module):
         self.recurrent_size = recurrent_size
         self.latent_size = latent_size
         self.model_dim = model_dim
+        self.latent_categories_size = latent_categories_size
         
         self.model = nn.Sequential(
             nn.Linear(recurrent_size, model_dim),
@@ -164,12 +166,11 @@ class RewardPredictor(nn.Module):   # TODO: initially predicts 0
     def forward(self, h, z):    # TODO: Check if z is a list of tensors
         """
         h: Tensor of shape (batch_size, hidden_dim)
-        z: List of Tensors, each of shape (batch_size,) representing categorical indices
+        z: Tensor of shape (batch_size, latent_dim * embedding_dim)
         """
-        embedded_z = torch.cat(z, dim=-1)  # Concatenate embeddings
-        
+ 
         # Concatenate h with embedded latent variables
-        input_tensor = torch.cat([h, embedded_z], dim=-1)
+        input_tensor = torch.cat([h, z], dim=-1)
         return self.model(input_tensor)
 
 # Continue predictor:
@@ -201,12 +202,11 @@ class ContinuePredictor(nn.Module):
     def forward(self, h, z):    # TODO: Check if z is a list of tensors
         """
         h: Tensor of shape (batch_size, hidden_dim)
-        z: List of Tensors, each of shape (batch_size,) representing categorical indices
+        z: Tensor of shape (batch_size, latent_dim * embedding_dim)
         """
-        embedded_z = torch.cat(z, dim=-1)  # Concatenate embeddings
-        
+    
         # Concatenate h with embedded latent variables
-        input_tensor = torch.cat([h, embedded_z], dim=-1)
+        input_tensor = torch.cat([h, z], dim=-1)
         return self.model(input_tensor)
 
 
@@ -238,12 +238,10 @@ class Decoder(nn.Module):
     def forward(self, h, z):
         """
         h: Tensor of shape (batch_size, hidden_dim)
-        z: List of Tensors, each of shape (batch_size,) representing categorical indices
+        z: Tensor of shape (batch_size, latent_dim * embedding_dim)
         """
-        embedded_z = torch.cat(z, dim=-1)  # Concatenate embeddings
-        
         # Concatenate h with embedded latent variables
-        input_tensor = torch.cat([h, embedded_z], dim=-1)
+        input_tensor = torch.cat([h, z], dim=-1)
         return self.model(input_tensor)
     
 class WorldModel():
@@ -265,28 +263,104 @@ class WorldModel():
         self.continue_predictor = ContinuePredictor(model_dim * num_blocks, latent_size, embedding_dim, 1, model_dim)
         self.decoder = Decoder(model_dim * num_blocks, latent_size, embedding_dim, obs_size, model_dim)
 
+        params = list(self.sequence_model.parameters()) + \
+                list(self.encoder.parameters()) + \
+                list(self.dynamics_predictor.parameters()) + \
+                list(self.reward_predictor.parameters()) + \
+                list(self.continue_predictor.parameters()) + \
+                list(self.decoder.parameters())
+                
+        self.optimizer = optim.Adam(params, lr=1e-3)
+
     def get_encoding_and_recurrent_hidden(self, h, x, a):
         # TODO: currently only supports a single sequence
         # h = (batch_size, model_dim * num_blocks)
         # x = (obs_size)
         # a = (action_size)
         # but (batch_size, seq_len, ...) is needed for sequence_model
+
         if x.dim() == 1:
             x = x.unsqueeze(dim=0)        
         z, _ = self.encoder(h, x)
 
 
         z_t = z.view(-1, 1, self.latent_size * self.latent_categories_size)
-        h_t = h.view(-1, 1, self.model_dim * self.num_blocks)
+        
         a_t = a.view(-1, 1, self.action_size)
-        new_h = self.sequence_model(z_t, a_t, h_t) # (batch_size, seq_len, num_blocks * model_dim), but seq_len is 1
+        new_h = self.sequence_model(z_t, a_t, h) # (batch_size, seq_len, num_blocks * model_dim), but seq_len is 1
         new_h = new_h.squeeze(dim=1)
         return z, new_h
     
     def get_default_hidden(self):
         return self.sequence_model.get_default_hidden()
 
-    
+    def train(self, x, a, r, c, z_memory):
+        # Train the world model
+        mse_loss = nn.MSELoss()     # TODO: for r and c this needs to be nll loss for (two-hot encoded)
+        kl_loss = nn.KLDivLoss(reduction="batchmean", log_target=True)
+
+        
+        # Calculate the hidden states from the old latents, and the new latents
+        h_t = self.get_default_hidden()
+        z_new_categorical = []
+        z_prob = []
+        h_states = []    
+        for t in range(a.shape[0]):  
+            h_states.append(h_t)
+            z_memory_t = z_memory[t].view(1, 1, -1)
+            x_t = x[t:t+1]
+            a_t = a[t:t+1]
+
+            # Compute z_t
+            z_t, z_prob_t = self.encoder(h_t, x_t)
+            z_new_categorical.append(z_t)
+            z_prob.append(z_prob_t)
+
+            # Compute next hidden state
+            h_t = self.sequence_model(z_memory_t, a_t.unsqueeze(dim=0), h_t).squeeze(dim=1)
+            
+
+        # Convert utputs to tensors
+        z_new_categorical = torch.cat(z_new_categorical, dim=0)
+        z_prob = torch.cat(z_prob, dim=0)
+        z_new = z_new_categorical.view(-1, self.latent_size * self.latent_categories_size)
+        h = torch.stack(h_states, dim=0).squeeze(dim=1)
+        
+        if r.dim() == 1:
+            r = r.unsqueeze(dim=1)
+        if c.dim() == 1:
+            c = c.unsqueeze(dim=1)
+
+        # L_pred
+        x_out = self.decoder(h, z_new)
+        r_out = self.reward_predictor(h, z_new)
+        c_out = self.continue_predictor(h, z_new)
+        loss_pred = mse_loss(x_out,x) + mse_loss(r_out, r) + mse_loss(c_out, c)
+
+        # L_dyn + L_enc
+        # already computed
+        # z_new, z_prob = self.encoder(h, x)
+        _, z_dyn_prob = self.dynamics_predictor(h)
+
+        z_prob = torch.log(z_prob * 0.99 + 0.01 / self.latent_categories_size)
+        z_dyn_prob = torch.log(z_dyn_prob * 0.99 + 0.01 / self.latent_categories_size)
+
+        loss_dyn = torch.clamp(kl_loss(z_prob.detach(), z_dyn_prob), max=1)
+        loss_enc = torch.clamp(kl_loss(z_prob, z_dyn_prob.detach()), max=1)
+        
+        # L_total
+
+        #loss_total = loss_pred + loss_dyn + 0.1 * loss_enc
+        loss_total =  loss_dyn
+
+
+        self.optimizer.zero_grad()
+        loss_total.backward()
+        self.optimizer.step()
+        return loss_total.item(), z_new_categorical
+        
+
+
 
 
 
