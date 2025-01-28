@@ -1,0 +1,66 @@
+# 1. WorldModel
+
+# - Encodes observations, models dynamics (e.g., RSSM), and decodes observations, rewards, and termination signals.
+
+# 2. Encoder
+
+# - Encodes high-dimensional inputs (e.g., images or states) into a latent representation.
+
+# 3. RSSM (Recurrent State-Space Model)
+
+# - Captures stochastic and deterministic transitions in the latent space.
+
+# 4. Decoder
+
+# - Decodes latent states into observations, rewards, or termination signals.
+
+# 5. ActorCritic
+
+# - Combines the policy (actor) and value function (critic) for reinforcement learning in latent space.
+
+# 6. Actor
+
+# - Generates actions to maximize rewards using the latent representation.
+
+# 7. Critic
+
+# - Estimates the value of states or latent representations for policy evaluation.
+
+# 8. ReplayBuffer
+
+# - Stores transitions (observation, action, reward, etc.) for training the world model and policy.
+
+# 9. ImaginationRollout
+
+# - Simulates trajectories in the latent space for policy optimization.
+
+# 10. Trainer
+
+# - Orchestrates the training loop for the world model, actor, and critic.
+
+# ------------------------------------------------------------------------------------------------------------------------------------------------------
+
+# RSSM (Recurrent State-Space Model)
+
+    # Sequence model:
+    #   h_t = f_ϕ(h_{t-1}, z_{t-1}, a_{t-1})
+
+    # Encoder:
+    #   z_t ~ q_ϕ(z_t | h_t, x_t)
+
+    # Dynamics predictor:
+    #   ẑ_t ~ p_ϕ(ẑ_t | h_t)
+
+# Reward predictor:
+
+# r̂*t ~ p*ϕ(r̂_t | h_t, z_t)
+
+# Continue predictor:
+
+# ĉ*t ~ p*ϕ(ĉ_t | h_t, z_t)
+
+# Decoder:
+
+# x̂*t ~ p*ϕ(x̂_t | h_t, z_t)
+
+# ------------------------------------------------------------------------------------------------------------------------------------------------------

@@ -21,6 +21,19 @@ d = dm.DreamerV3(
     model_dim=256,
     imagination_horizon=15)
 
-d.generate_trajectories(100,100)
+replay_ratio = 32
+number_of_training_steps = 100
+batch_size = 7
+number_of_trajectories = 10
+max_steps = 100
+
+for step in range(number_of_training_steps):
+    d.generate_trajectories(number_of_trajectories,max_steps)
+
+    for _ in range(replay_ratio * number_of_trajectories * max_steps // batch_size):
+        d.train(batch_size)
+        
+
+    
 
 pass
