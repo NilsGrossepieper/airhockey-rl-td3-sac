@@ -1,7 +1,7 @@
 import torch
 
 class Memory: # TODO: Make into dataloader
-    def __init__(self, capacity, obs_dim, action_dim, latent_dim, latent_categories_dim, recurrent_dim, num_blocks, device='cpu'):
+    def __init__(self, capacity, obs_dim, action_dim, latent_dim, latent_categories_dim, device='cpu'):
         self.capacity = capacity
         self.index = 0
         self.full = False
@@ -12,47 +12,56 @@ class Memory: # TODO: Make into dataloader
         self.rewards = torch.zeros(capacity, dtype=torch.float32, device=device)
         self.dones = torch.zeros(capacity, dtype=torch.float32, device=device)
         self.latents = torch.zeros((capacity, latent_dim, latent_categories_dim), dtype=torch.float32, device=device)
-        #self.next_obs = torch.zeros((capacity, obs_dim), dtype=torch.float32, device=device)
-        #self.recurrent_hidden = torch.zeros((capacity, recurrent_dim * num_blocks), dtype=torch.float32, device=device)
-
+        
     def add(self, obs, action, reward, done, latent):
         self.obs[self.index] = torch.tensor(obs, device=self.device).clone().detach()
         self.actions[self.index] = action
         self.rewards[self.index] = reward
         self.dones[self.index] = done
         self.latents[self.index] = torch.tensor(latent, device=self.device).clone().detach()
-        #self.next_obs[self.index] = torch.tensor(next_obs, device=self.device).clone().detach()
-        #self.recurrent_hidden[self.index] = torch.tensor(recurrent_hidden, device=self.device).clone().detach()
         
         self.index = (self.index + 1) % self.capacity
         self.full = self.full or self.index == 0
 
-    def sample(self, batch_size):
+    def sample(self, batch_size, seq_len=1):
         max_index = self.capacity if self.full else self.index
-        start_index = torch.randint(0, max_index - batch_size + 1, (1,), device=self.device).item()
-        indices = torch.arange(start_index, start_index + batch_size, device=self.device) # TODO: change to slicing
-        return indices, (
-            self.obs[indices],
-            self.actions[indices],
-            self.rewards[indices],
-            self.dones[indices],
-            self.latents[indices],
-            #self.next_obs[indices],
-            #self.recurrent_hidden[indices]
+
+        number_of_blocks = max_index // seq_len
+        if batch_size > number_of_blocks:
+            raise ValueError(f"Cannot pick {batch_size * seq_len} data out of {max_index} available data.")
+
+        chosen_blocks = torch.randperm(number_of_blocks)[:batch_size]
+        start_indices = chosen_blocks * seq_len
+        
+        batches = {"obs":[], "actions":[], "rewards":[], "dones":[], "latents":[]}
+        for start_idx in start_indices:
+            batches["obs"].append(self.obs[start_idx:start_idx + seq_len])
+            batches["actions"].append(self.actions[start_idx:start_idx + seq_len])
+            batches["rewards"].append(self.rewards[start_idx:start_idx + seq_len])
+            batches["dones"].append(self.dones[start_idx:start_idx + seq_len])  
+            batches["latents"].append(self.latents[start_idx:start_idx + seq_len])
+        
+        
+        obs = torch.stack(batches["obs"])
+        actions = torch.stack(batches["actions"])
+        rewards = torch.stack(batches["rewards"])
+        dones = torch.stack(batches["dones"])
+        latents = torch.stack(batches["latents"])
+
+        # x: (batch_size, seq_len, obs_size)
+        # a: (batch_size, seq_len, action_size)
+        # r: (batch_size, seq_len)
+        # c: (batch_size, seq_len)
+        # z_memory: (batch_size, seq_len, latent_size, latent_categories_size)
+        return start_indices, (
+            obs,
+            actions,
+            rewards,
+            dones,
+            latents,
         )
     
-    def update(self, indices, obs=None, actions=None, rewards=None, dones=None, next_obs=None, latents=None, recurrent_hidden=None):
-        #if obs is not None:
-        #    self.obs[indices] = obs
-        #if actions is not None:
-        #    self.actions[indices] = actions
-        #if rewards is not None:
-        #    self.rewards[indices] = rewards
-        #if dones is not None:
-        #    self.dones[indices] = dones
-        if latents is not None:
-            self.latents[indices] = latents.clone().detach()
-        #if recurrent_hidden is not None:
-        #    self.recurrent_hidden[indices] = recurrent_hidden
-        #if next_obs is not None:
-        #    self.next_obs[indices] = next_obs
+    def update(self, start_indices, latents):
+        seq_len = latents.shape[1]
+        for i, start_idx in enumerate(start_indices):
+            self.latents[start_idx: start_idx + seq_len] = latents[i].clone().detach()

@@ -30,12 +30,11 @@ class SequenceModel(nn.Module):
         return torch.zeros(batch_size, self.model_dim * self.num_blocks)
         #return [None] * self.num_blocks # TODO: The initialization of h as [None] * self.num_blocks in the absence of hidden states may cause issues if the GRU expects tensor inputs. Explicitly initialize h with tensors of appropriate dimensions.
     
-    def forward(self, z, a, h=None):
+    def forward(self, z, a, h):
         """
         z: (batch_size, seq_len, latent_size * latent_categories_size)
         a: (batch_size, seq_len, action_size)
-        h: optional list/tuple of hidden states, 
-           one for each block, each of shape (batch_size, model_dim * num_blocks)
+        h: (batch_size, model_dim * num_blocks)
         """
         assert z.size(0) == a.size(0), "Batch size of z and a must match"
         assert z.size(1) == a.size(1), "Sequence length of z and a must match"
@@ -88,10 +87,8 @@ class Encoder(nn.Module):
 
     def forward(self, h, x):
         """
-        z: (batch_size, latent_size)
-        a: (batch_size, action_size)
-        h: optional list/tuple of hidden states, 
-           one for each block, each of shape (batch_size, model_dim * num_blocks)
+        x: (batch_size, obs_dim)
+        h: (batch_size, model_dim * num_blocks)
         """
         _x = torch.cat((h, x), dim=-1)
         # Forward pass through the MLP
@@ -270,7 +267,7 @@ class WorldModel():
                 list(self.continue_predictor.parameters()) + \
                 list(self.decoder.parameters())
                 
-        self.optimizer = optim.Adam(params, lr=1e-3)
+        self.optimizer = optim.Adam(params, lr=1e-5)
 
     def get_encoding_and_recurrent_hidden(self, h, x, a):
         # TODO: currently only supports a single sequence
@@ -291,25 +288,34 @@ class WorldModel():
         new_h = new_h.squeeze(dim=1)
         return z, new_h
     
-    def get_default_hidden(self):
-        return self.sequence_model.get_default_hidden()
+    def get_default_hidden(self, batch_size=1):
+        return self.sequence_model.get_default_hidden(batch_size)
 
     def train(self, x, a, r, c, z_memory):
+        """
+        x: (batch_size, seq_len, obs_size)
+        a: (batch_size, seq_len, action_size)
+        r: (batch_size, seq_len)
+        c: (batch_size, seq_len)
+        z_memory: (batch_size, seq_len, latent_size, latent_categories_size)
+        """
+        batch_size = x.shape[0]
+        seq_len = x.shape[1]
         # Train the world model
         mse_loss = nn.MSELoss()     # TODO: for r and c this needs to be nll loss for (two-hot encoded)
         kl_loss = nn.KLDivLoss(reduction="batchmean", log_target=True)
 
         
         # Calculate the hidden states from the old latents, and the new latents
-        h_t = self.get_default_hidden()
+        h_t = self.get_default_hidden(batch_size)
         z_new_categorical = []
         z_prob = []
         h_states = []    
-        for t in range(a.shape[0]):  
+        for t in range(seq_len):  
             h_states.append(h_t)
-            z_memory_t = z_memory[t].view(1, 1, -1)
-            x_t = x[t:t+1]
-            a_t = a[t:t+1]
+            z_memory_t = z_memory[:,t].view(batch_size, 1, -1)
+            x_t = x[:,t]
+            a_t = a[:,t:t+1]
 
             # Compute z_t
             z_t, z_prob_t = self.encoder(h_t, x_t)
@@ -317,20 +323,20 @@ class WorldModel():
             z_prob.append(z_prob_t)
 
             # Compute next hidden state
-            h_t = self.sequence_model(z_memory_t, a_t.unsqueeze(dim=0), h_t).squeeze(dim=1)
+            h_t = self.sequence_model(z_memory_t, a_t, h_t).squeeze(dim=1)
             
 
-        # Convert utputs to tensors
-        z_new_categorical = torch.cat(z_new_categorical, dim=0)
+        # Convert outputs to tensors
+        z_new_categorical = torch.cat(z_new_categorical, dim=0) # (batch_size * seq_len, latent_size, latent_categories_size)
         z_prob = torch.cat(z_prob, dim=0)
-        z_new = z_new_categorical.view(-1, self.latent_size * self.latent_categories_size)
-        h = torch.stack(h_states, dim=0).squeeze(dim=1)
+        z_new = z_new_categorical.view(batch_size * seq_len, self.latent_size * self.latent_categories_size)
+        h = torch.stack(h_states, dim=0).view(batch_size * seq_len, -1)
         
-        if r.dim() == 1:
-            r = r.unsqueeze(dim=1)
-        if c.dim() == 1:
-            c = c.unsqueeze(dim=1)
 
+
+        x = x.view(batch_size * seq_len, -1)
+        r = r.view(batch_size * seq_len, 1)
+        c = c.view(batch_size * seq_len, 1)
         # L_pred
         x_out = self.decoder(h, z_new)
         r_out = self.reward_predictor(h, z_new)
@@ -350,14 +356,13 @@ class WorldModel():
         
         # L_total
 
-        #loss_total = loss_pred + loss_dyn + 0.1 * loss_enc
-        loss_total =  loss_dyn
-
+        loss_total = loss_pred + loss_dyn + 0.1 * loss_enc
+        
 
         self.optimizer.zero_grad()
         loss_total.backward()
         self.optimizer.step()
-        return loss_total.item(), z_new_categorical
+        return loss_total.item(), z_new_categorical.view(batch_size, seq_len, self.latent_size, self.latent_categories_size)
         
 
 

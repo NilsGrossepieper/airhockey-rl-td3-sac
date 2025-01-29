@@ -33,7 +33,7 @@ class DreamerV3():
 
 
         self.world_model = WorldModel(latent_dim, action_dim, obs_dim, latent_categories_size, model_dim, num_blocks=8, embedding_dim=32)
-        self.memory = Memory(100000, obs_dim, action_dim, latent_dim, latent_categories_size, model_dim, num_blocks=8)
+        self.memory = Memory(100000, obs_dim, action_dim, latent_dim, latent_categories_size)
         #self.actor = Actor()
         #self.critic = Critic()
 
@@ -57,13 +57,13 @@ class DreamerV3():
                 h_0 = h_1
 
 
-    def train(self, batch_size):
+    def train(self, batch_size, seq_len):
         #indices, (obs, actions, rewards, dones, obs_next, latents, recurrent_hiddens) = self.memory.sample(batch_size)
-        indices, (obs, actions, rewards, dones, latents) = self.memory.sample(batch_size)
+        start_indices, (obs, actions, rewards, dones, latents) = self.memory.sample(batch_size, seq_len)
         
         # Train the world model
         loss, new_latents = self.world_model.train(x=obs, a=actions, r=rewards, c=dones, z_memory=latents)
-        self.memory.update(indices, latents=new_latents)
+        self.memory.update(start_indices, latents=new_latents)
         return loss
         
 

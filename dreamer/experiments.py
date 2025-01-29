@@ -24,14 +24,15 @@ d = dm.DreamerV3(
 replay_ratio = 32
 number_of_training_steps = 100
 batch_size = 7
+seq_len = 11
 number_of_trajectories = 10
-max_steps = 100
+max_steps = 10
 
 for step in range(number_of_training_steps):
     d.generate_trajectories(number_of_trajectories,max_steps)
 
     for _ in range(replay_ratio * number_of_trajectories * max_steps // batch_size):
-        d.train(batch_size)
+        d.train(batch_size, seq_len)
         
 
     
