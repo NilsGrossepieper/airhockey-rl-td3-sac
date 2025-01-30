@@ -19,7 +19,9 @@ class DreamerV3():
                  latent_categories_size,
                  model_dim, 
                  imagination_horizon,
-                 replay_ratio=32,
+                 capacity,
+                 replay_ratio,
+                 device,
                  **kwargs):
         
         self.env = env
@@ -30,10 +32,11 @@ class DreamerV3():
         self.model_dim = model_dim
         self.imagination_horizon = imagination_horizon
         self.replay_ratio = replay_ratio
+        self.device = device
 
 
-        self.world_model = WorldModel(latent_dim, action_dim, obs_dim, latent_categories_size, model_dim, num_blocks=8, embedding_dim=32)
-        self.memory = Memory(100000, obs_dim, action_dim, latent_dim, latent_categories_size)
+        self.world_model = WorldModel(latent_dim, action_dim, obs_dim, latent_categories_size, model_dim, num_blocks=8, device=device)
+        self.memory = Memory(capacity, obs_dim, action_dim, latent_dim, latent_categories_size, device=device)
         #self.actor = Actor()
         #self.critic = Critic()
 
@@ -42,19 +45,24 @@ class DreamerV3():
             obs_0, info = self.env.reset()
             h_0 = self.world_model.get_default_hidden()
             for step in range(max_steps):
-                a_0 = (torch.rand(4) - 0.5) * 2  #Actor generates action
-                a_enemy = (torch.rand(4) - 0.5) * 2   
-                
+                #a_0 = (torch.rand(4) - 0.5) * 2  #Actor generates action
+                #a_enemy = (torch.rand(4) - 0.5) * 2   
+                a_0 = torch.tensor([0.1, 0.1, 0.1, 0.0], dtype=torch.float32)
+                a_enemy = torch.tensor([-0.1, -0.1, -0.1, 0.0], dtype=torch.float32)
 
                 obs_1, r, d, t, info = self.env.step(np.hstack([a_0,a_enemy]))
                 
-                obs_0_t = torch.tensor(obs_0, dtype=torch.float32)
+                obs_0_t = torch.tensor(obs_0, dtype=torch.float32, device=self.device)
+                a_0 = torch.tensor(a_0, dtype=torch.float32, device=self.device)
                  
                 latent, h_1 = self.world_model.get_encoding_and_recurrent_hidden(h_0, obs_0_t, a_0)
                 self.memory.add(obs_0, a_0, r, d, latent)
                 
                 obs_0 = obs_1
                 h_0 = h_1
+                if (d):
+                    break
+            print(f"Trajectory {traj} completed.")
 
 
     def train(self, batch_size, seq_len):

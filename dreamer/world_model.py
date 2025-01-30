@@ -7,7 +7,7 @@ import torch.optim as optim
 # Sequence model:
 #   h_t = f_ϕ(h_{t-1}, z_{t-1}, a_{t-1})
 class SequenceModel(nn.Module):
-    def __init__(self, latent_size, latent_categories_size, action_size, model_dim, num_blocks=8):
+    def __init__(self, latent_size, latent_categories_size, action_size, model_dim, num_blocks=8, device="cpu"):
         super().__init__()
         self.latent_size = latent_size
         self.action_size = action_size
@@ -15,6 +15,7 @@ class SequenceModel(nn.Module):
         self.model_dim = model_dim
         self.num_blocks = num_blocks
         self.latent_categories_size = latent_categories_size
+        self.device = device
         
         # Each block has hidden_size = D, and we have 8 of these
         self.blocks = nn.ModuleList([
@@ -27,7 +28,7 @@ class SequenceModel(nn.Module):
         ])
     
     def get_default_hidden(self, batch_size=1):
-        return torch.zeros(batch_size, self.model_dim * self.num_blocks)
+        return torch.zeros(batch_size, self.model_dim * self.num_blocks, device=self.device)
         #return [None] * self.num_blocks # TODO: The initialization of h as [None] * self.num_blocks in the absence of hidden states may cause issues if the GRU expects tensor inputs. Explicitly initialize h with tensors of appropriate dimensions.
     
     def forward(self, z, a, h):
@@ -44,13 +45,14 @@ class SequenceModel(nn.Module):
         # Combine a and z
         x = torch.cat((a, z), dim=-1)  # shape: (batch_size, seq_len, a_dim + z_dim)
 
-        if h is None:
-            # If no hidden states are given, default to None for each block
-            h = self.get_default_hidden()        
+             
         
         batch_size = z.shape[0]
         h = h.view(batch_size, self.num_blocks, self.model_dim)
         h = h.permute(1, 0, 2)
+
+        if self.device.type == "cuda":
+            h = h.contiguous() 
 
         outputs = []        #TODO: check what happens if seq_len is not 1
         #new_h = []
@@ -242,23 +244,22 @@ class Decoder(nn.Module):
         return self.model(input_tensor)
     
 class WorldModel():
-    def __init__(self, latent_size, action_size, obs_size, latent_categories_size, model_dim, num_blocks=8, embedding_dim=32):
+    def __init__(self, latent_dim, action_dim, obs_size, latent_categories_size, model_dim, num_blocks=8, device='cpu'):
         super().__init__()
-        self.latent_size = latent_size
-        self.action_size = action_size
+        self.latent_dim = latent_dim
+        self.action_dim = action_dim
         self.obs_size = obs_size
         self.latent_categories_size = latent_categories_size
         self.model_dim = model_dim
         self.num_blocks = num_blocks
-        self.embedding_dim = embedding_dim
         
         
-        self.sequence_model = SequenceModel(latent_size, latent_categories_size, action_size, model_dim, num_blocks)
-        self.encoder = Encoder(model_dim * num_blocks, obs_size, latent_size, latent_categories_size, model_dim)
-        self.dynamics_predictor = DynamicsPredictor(model_dim * num_blocks, latent_size, latent_categories_size, model_dim)
-        self.reward_predictor = RewardPredictor(model_dim * num_blocks, latent_size, embedding_dim, 1, model_dim)
-        self.continue_predictor = ContinuePredictor(model_dim * num_blocks, latent_size, embedding_dim, 1, model_dim)
-        self.decoder = Decoder(model_dim * num_blocks, latent_size, embedding_dim, obs_size, model_dim)
+        self.sequence_model = SequenceModel(latent_dim, latent_categories_size, action_dim, model_dim, num_blocks, device).to(device)
+        self.encoder = Encoder(model_dim * num_blocks, obs_size, latent_dim, latent_categories_size, model_dim).to(device)
+        self.dynamics_predictor = DynamicsPredictor(model_dim * num_blocks, latent_dim, latent_categories_size, model_dim).to(device)
+        self.reward_predictor = RewardPredictor(model_dim * num_blocks, latent_dim, latent_categories_size, 1, model_dim).to(device)
+        self.continue_predictor = ContinuePredictor(model_dim * num_blocks, latent_dim, latent_categories_size, 1, model_dim).to(device)
+        self.decoder = Decoder(model_dim * num_blocks, latent_dim, latent_categories_size, obs_size, model_dim).to(device)
 
         params = list(self.sequence_model.parameters()) + \
                 list(self.encoder.parameters()) + \
@@ -267,13 +268,13 @@ class WorldModel():
                 list(self.continue_predictor.parameters()) + \
                 list(self.decoder.parameters())
                 
-        self.optimizer = optim.Adam(params, lr=1e-5)
+        self.optimizer = optim.Adam(params, lr=4e-4)
 
     def get_encoding_and_recurrent_hidden(self, h, x, a):
         # TODO: currently only supports a single sequence
         # h = (batch_size, model_dim * num_blocks)
         # x = (obs_size)
-        # a = (action_size)
+        # a = (action_dim)
         # but (batch_size, seq_len, ...) is needed for sequence_model
 
         if x.dim() == 1:
@@ -281,9 +282,9 @@ class WorldModel():
         z, _ = self.encoder(h, x)
 
 
-        z_t = z.view(-1, 1, self.latent_size * self.latent_categories_size)
+        z_t = z.view(-1, 1, self.latent_dim * self.latent_categories_size)
         
-        a_t = a.view(-1, 1, self.action_size)
+        a_t = a.view(-1, 1, self.action_dim)
         new_h = self.sequence_model(z_t, a_t, h) # (batch_size, seq_len, num_blocks * model_dim), but seq_len is 1
         new_h = new_h.squeeze(dim=1)
         return z, new_h
@@ -294,53 +295,36 @@ class WorldModel():
     def train(self, x, a, r, c, z_memory):
         """
         x: (batch_size, seq_len, obs_size)
-        a: (batch_size, seq_len, action_size)
+        a: (batch_size, seq_len, action_dim)
         r: (batch_size, seq_len)
         c: (batch_size, seq_len)
-        z_memory: (batch_size, seq_len, latent_size, latent_categories_size)
+        z_memory: (batch_size, seq_len, latent_dim, latent_categories_size)
         """
         batch_size = x.shape[0]
         seq_len = x.shape[1]
         # Train the world model
-        mse_loss = nn.MSELoss()     # TODO: for r and c this needs to be nll loss for (two-hot encoded)
+        mse_loss = nn.L1Loss()     # TODO: for r and c this needs to be nll loss for (two-hot encoded)
         kl_loss = nn.KLDivLoss(reduction="batchmean", log_target=True)
 
         
         # Calculate the hidden states from the old latents, and the new latents
+        h_0 = self.get_default_hidden(batch_size)
         h_t = self.get_default_hidden(batch_size)
-        z_new_categorical = []
-        z_prob = []
-        h_states = []    
-        for t in range(seq_len):  
-            h_states.append(h_t)
-            z_memory_t = z_memory[:,t].view(batch_size, 1, -1)
-            x_t = x[:,t]
-            a_t = a[:,t:t+1]
 
-            # Compute z_t
-            z_t, z_prob_t = self.encoder(h_t, x_t)
-            z_new_categorical.append(z_t)
-            z_prob.append(z_prob_t)
-
-            # Compute next hidden state
-            h_t = self.sequence_model(z_memory_t, a_t, h_t).squeeze(dim=1)
-            
-
-        # Convert outputs to tensors
-        z_new_categorical = torch.cat(z_new_categorical, dim=0) # (batch_size * seq_len, latent_size, latent_categories_size)
-        z_prob = torch.cat(z_prob, dim=0)
-        z_new = z_new_categorical.view(batch_size * seq_len, self.latent_size * self.latent_categories_size)
-        h = torch.stack(h_states, dim=0).view(batch_size * seq_len, -1)
+        h = self.sequence_model(z_memory.view(batch_size, seq_len, -1), a, h_0).squeeze(dim=1)
+        h = torch.cat([h_0.unsqueeze(dim=1), h[:,:-1]], dim=1)
+        h = h.view(batch_size * seq_len, -1)
+         # (batch_size * seq_len, latent_dim, latent_categories_size)
+        z_new, z_prob = self.encoder(h, x.view(batch_size * seq_len, -1))
         
-
-
+        z_new_long = z_new.view(batch_size * seq_len, -1)
         x = x.view(batch_size * seq_len, -1)
         r = r.view(batch_size * seq_len, 1)
         c = c.view(batch_size * seq_len, 1)
         # L_pred
-        x_out = self.decoder(h, z_new)
-        r_out = self.reward_predictor(h, z_new)
-        c_out = self.continue_predictor(h, z_new)
+        x_out = self.decoder(h, z_new_long)
+        r_out = self.reward_predictor(h, z_new_long)
+        c_out = self.continue_predictor(h, z_new_long)
         loss_pred = mse_loss(x_out,x) + mse_loss(r_out, r) + mse_loss(c_out, c)
 
         # L_dyn + L_enc
@@ -351,9 +335,8 @@ class WorldModel():
         z_prob = torch.log(z_prob * 0.99 + 0.01 / self.latent_categories_size)
         z_dyn_prob = torch.log(z_dyn_prob * 0.99 + 0.01 / self.latent_categories_size)
 
-        loss_dyn = torch.clamp(kl_loss(z_prob.detach(), z_dyn_prob), max=1)
-        loss_enc = torch.clamp(kl_loss(z_prob, z_dyn_prob.detach()), max=1)
-        
+        loss_dyn = torch.clamp(kl_loss(z_dyn_prob.view(-1, self.latent_categories_size), z_prob.detach().view(-1, self.latent_categories_size)), max=1)     # have to switch positions
+        loss_enc = torch.clamp(kl_loss(z_dyn_prob.detach().view(-1, self.latent_categories_size), z_prob.view(-1, self.latent_categories_size)), max=1)
         # L_total
 
         loss_total = loss_pred + loss_dyn + 0.1 * loss_enc
@@ -362,7 +345,8 @@ class WorldModel():
         self.optimizer.zero_grad()
         loss_total.backward()
         self.optimizer.step()
-        return loss_total.item(), z_new_categorical.view(batch_size, seq_len, self.latent_size, self.latent_categories_size)
+        #print(loss_total.item())
+        return (loss_pred, loss_dyn, 0.1 * loss_enc), z_new.view(batch_size, seq_len, self.latent_dim, self.latent_categories_size)
         
 
 
