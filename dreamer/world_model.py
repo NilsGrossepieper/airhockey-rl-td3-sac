@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.distributions import Normal
 import torch.optim as optim
+import utils
 
 # Sequence model:
 #   h_t = f_ϕ(h_{t-1}, z_{t-1}, a_{t-1})
@@ -140,7 +141,7 @@ class DynamicsPredictor(nn.Module):
 
 # r̂_t ~ p_ϕ(r̂_t | h_t, z_t)
 class RewardPredictor(nn.Module):   # TODO: initially predicts 0
-    def __init__(self, hidden_dim, latent_dim, embedding_dim, output_dim, model_dim):
+    def __init__(self, hidden_dim, latent_dim, embedding_dim, output_dim, model_dim, bins):
         """
         Parameters:
         - hidden_dim: Dimension of the recurrent hidden state h_t
@@ -151,6 +152,8 @@ class RewardPredictor(nn.Module):   # TODO: initially predicts 0
         """
         super().__init__()
 
+        self.bins = bins
+
         self.latent_dim = latent_dim
 
         # Input dimension is hidden state + all embedded latent dimensions
@@ -159,10 +162,10 @@ class RewardPredictor(nn.Module):   # TODO: initially predicts 0
         self.model = nn.Sequential(
             nn.Linear(input_dim, model_dim),
             nn.ReLU(),
-            nn.Linear(model_dim, output_dim)
+            nn.Linear(model_dim, output_dim * bins)
         )
 
-    def forward(self, h, z):    # TODO: Check if z is a list of tensors
+    def forward(self, h, z, return_logits=True):    # TODO: Check if z is a list of tensors
         """
         h: Tensor of shape (batch_size, hidden_dim)
         z: Tensor of shape (batch_size, latent_dim * embedding_dim)
@@ -170,7 +173,11 @@ class RewardPredictor(nn.Module):   # TODO: initially predicts 0
  
         # Concatenate h with embedded latent variables
         input_tensor = torch.cat([h, z], dim=-1)
-        return self.model(input_tensor)
+        logits = self.model(input_tensor).view(-1, self.bins)
+        if return_logits:
+            return logits
+        else:
+            return F.softmax(logits, dim=-1)
 
 # Continue predictor:
 # ĉ_t ~ p_ϕ(ĉ_t | h_t, z_t)
@@ -244,20 +251,22 @@ class Decoder(nn.Module):
         return self.model(input_tensor)
     
 class WorldModel():
-    def __init__(self, latent_dim, action_dim, obs_size, latent_categories_size, model_dim, num_blocks=8, device='cpu'):
+    def __init__(self, latent_dim, action_dim, obs_size, latent_categories_size, model_dim, bins, num_blocks=8, device='cpu'):
         super().__init__()
         self.latent_dim = latent_dim
         self.action_dim = action_dim
         self.obs_size = obs_size
         self.latent_categories_size = latent_categories_size
         self.model_dim = model_dim
+        self.bins = bins
         self.num_blocks = num_blocks
+        self.device = device
         
         
         self.sequence_model = SequenceModel(latent_dim, latent_categories_size, action_dim, model_dim, num_blocks, device).to(device)
         self.encoder = Encoder(model_dim * num_blocks, obs_size, latent_dim, latent_categories_size, model_dim).to(device)
         self.dynamics_predictor = DynamicsPredictor(model_dim * num_blocks, latent_dim, latent_categories_size, model_dim).to(device)
-        self.reward_predictor = RewardPredictor(model_dim * num_blocks, latent_dim, latent_categories_size, 1, model_dim).to(device)
+        self.reward_predictor = RewardPredictor(model_dim * num_blocks, latent_dim, latent_categories_size, 1, model_dim, bins).to(device)
         self.continue_predictor = ContinuePredictor(model_dim * num_blocks, latent_dim, latent_categories_size, 1, model_dim).to(device)
         self.decoder = Decoder(model_dim * num_blocks, latent_dim, latent_categories_size, obs_size, model_dim).to(device)
 
@@ -289,6 +298,52 @@ class WorldModel():
         new_h = new_h.squeeze(dim=1)
         return z, new_h
     
+    def imagine(self, z_0, actor, imag_horizon):
+        '''
+        
+        '''
+        h = []
+        z = []
+        r = []
+        c = []
+        a = []
+        #TODO: this is only pseudocode almost, need to check dimensions
+        #TODO: do we need probs or just the sampled values?
+        h_t = self.get_default_hidden(z_0.shape[0])
+        z_t = z_0
+        for _ in range(imag_horizon):
+            z_t_long = z_t.view(-1, self.latent_dim * self.latent_categories_size)  # (batch_size, latent_dim * latent_categories_size)
+            a_t_cat = actor(h_t, z_t_long)[0].view(-1, self.action_dim, self.bins)  # (batch_size, action_dim, action_bins)
+            r_t_cat = self.reward_predictor(h_t, z_t_long, return_logits=False).unsqueeze(dim=1) # (batch_size, 1, bins)
+            c_t_cat = self.continue_predictor(h_t, z_t_long)                # (batch_size, 1)
+
+            r_t = utils.get_value_from_distribution(r_t_cat, -1, 1)     # (batch_size, 1)
+            a_t = utils.get_value_from_distribution(a_t_cat, -1, 1)     # (batch_size, action_dim)
+            c_t = (c_t_cat > 0.5).float().to(self.device)               # (batch_size, 1)
+
+            h.append(h_t)
+            z.append(z_t_long)
+            a.append(a_t)
+            r.append(r_t)
+            c.append(c_t)
+
+            h_new = self.sequence_model(z_t_long.unsqueeze(dim=1), a_t.unsqueeze(dim=1), h_t.unsqueeze(dim=1))
+            z_new, _ = self.dynamics_predictor(h_new)
+
+            h_t = h_new.view(-1, self.model_dim * self.num_blocks)
+            z_t = z_new
+        h.append(h_t)
+        z.append(z_t.view(-1, self.latent_dim * self.latent_categories_size))
+        
+        h = torch.stack(h, dim=1) # (batch_size, imag_horizon + 1, recurrent_hidden_dim * num_blocks)
+        z = torch.stack(z, dim=1) # (batch_size, imag_horizon + 1, latent_dim * latent_categories_size)
+        a = torch.stack(a, dim=1) # (batch_size, imag_horizon, action_dim)
+        r = torch.stack(r, dim=1) # (batch_size, imag_horizon, 1)
+        c = torch.stack(c, dim=1) # (batch_size, imag_horizon, 1)
+
+        
+        return h, z, a, r, c
+    
     def get_default_hidden(self, batch_size=1):
         return self.sequence_model.get_default_hidden(batch_size)
 
@@ -303,13 +358,12 @@ class WorldModel():
         batch_size = x.shape[0]
         seq_len = x.shape[1]
         # Train the world model
-        mse_loss = nn.L1Loss()     # TODO: for r and c this needs to be nll loss for (two-hot encoded)
+        l1_loss = nn.L1Loss()
         kl_loss = nn.KLDivLoss(reduction="batchmean", log_target=True)
 
         
         # Calculate the hidden states from the old latents, and the new latents
         h_0 = self.get_default_hidden(batch_size)
-        h_t = self.get_default_hidden(batch_size)
 
         h = self.sequence_model(z_memory.view(batch_size, seq_len, -1), a, h_0).squeeze(dim=1)
         h = torch.cat([h_0.unsqueeze(dim=1), h[:,:-1]], dim=1)
@@ -325,7 +379,7 @@ class WorldModel():
         x_out = self.decoder(h, z_new_long)
         r_out = self.reward_predictor(h, z_new_long)
         c_out = self.continue_predictor(h, z_new_long)
-        loss_pred = mse_loss(x_out,x) + mse_loss(r_out, r) + mse_loss(c_out, c)
+        loss_pred = l1_loss(x_out,x) + F.cross_entropy(r_out, utils.get_twohot_from_value(r, self.bins, -1, 1).squeeze(dim=1)) + F.cross_entropy(c_out, c)
 
         # L_dyn + L_enc
         # already computed

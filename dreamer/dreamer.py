@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.distributions import Normal
 
-import actor 
+from actor import Actor 
 from critic import Critic
 from memory import Memory
 from world_model import WorldModel
@@ -17,10 +17,13 @@ class DreamerV3():
                  action_dim, 
                  latent_dim, 
                  latent_categories_size,
-                 model_dim, 
+                 model_dim,
+                 num_blocks,
                  imagination_horizon,
                  capacity,
                  replay_ratio,
+                 imag_horizon,
+                 bins,
                  device,
                  **kwargs):
         
@@ -33,12 +36,28 @@ class DreamerV3():
         self.imagination_horizon = imagination_horizon
         self.replay_ratio = replay_ratio
         self.device = device
+        self.num_blocks = num_blocks
+        self.imag_horizon = imag_horizon
+        self.bins = bins
+        
 
 
-        self.world_model = WorldModel(latent_dim, action_dim, obs_dim, latent_categories_size, model_dim, num_blocks=8, device=device)
+        self.world_model = WorldModel(latent_dim, action_dim, obs_dim, latent_categories_size, model_dim, bins, num_blocks, device=device)
         self.memory = Memory(capacity, obs_dim, action_dim, latent_dim, latent_categories_size, device=device)
-        #self.actor = Actor()
-        #self.critic = Critic()
+        self.critic = Critic(recurrent_hidden_dim=model_dim * num_blocks,
+                           latent_dim=latent_dim,
+                           latent_categories_size=latent_categories_size,
+                           model_dim=model_dim,
+                           bins=bins,
+                           device=device)
+        self.actor = Actor(
+            recurrent_hidden_dim=model_dim * num_blocks,
+            latent_dim=latent_dim,
+            latent_categories_size=latent_categories_size,
+            model_dim=model_dim,
+            action_dim=action_dim,
+            action_bins=bins,
+            device=device)
 
     def generate_trajectories(self, number_of_trajectories, max_steps):
         for traj in range(number_of_trajectories):
@@ -56,7 +75,7 @@ class DreamerV3():
                 a_0 = torch.tensor(a_0, dtype=torch.float32, device=self.device)
                  
                 latent, h_1 = self.world_model.get_encoding_and_recurrent_hidden(h_0, obs_0_t, a_0)
-                self.memory.add(obs_0, a_0, r, d, latent)
+                self.memory.add(obs_0, a_0, r / 10, (1-d), latent) # r/10!
                 
                 obs_0 = obs_1
                 h_0 = h_1
@@ -66,12 +85,26 @@ class DreamerV3():
 
 
     def train(self, batch_size, seq_len):
-        #indices, (obs, actions, rewards, dones, obs_next, latents, recurrent_hiddens) = self.memory.sample(batch_size)
-        start_indices, (obs, actions, rewards, dones, latents) = self.memory.sample(batch_size, seq_len)
-        
         # Train the world model
-        loss, new_latents = self.world_model.train(x=obs, a=actions, r=rewards, c=dones, z_memory=latents)
-        self.memory.update(start_indices, latents=new_latents)
-        return loss
+        start_indices, (obs, actions, rewards, dones, latents) = self.memory.sample_for_world_model(batch_size, seq_len)
+        loss_world, new_latents = self.world_model.train(x=obs, a=actions, r=rewards, c=dones, z_memory=latents)
+        self.memory.update_latents(start_indices, latents=new_latents)
+        
+        # Generate imagined trajections
+        latents = self.memory.sample_for_imagination(batch_size)
+        h_imag, z_imag, a_imag, r_imag, c_imag = self.world_model.imagine(z_0=latents, 
+                                                     actor=self.actor,
+                                                     imag_horizon=self.imag_horizon)
+        
+        # Train the critic
+        loss_critic = self.critic.train(z=z_imag,
+                                        h=h_imag,
+                                        r=r_imag,
+                                        c=c_imag,
+                                        gamma=0.997,
+                                        lambda_=0.95)
+
+
+        return loss_world, loss_critic
         
 

@@ -16,7 +16,7 @@ def get_value_from_distribution(dist, min_val, max_val):
     dist = dist.view(batch * dist_length, dist_bins)
     bin_values = torch.linspace(min_val, max_val, dist_bins, device=dist.device).view(1, dist_bins)
     values = dist * bin_values
-    values = values.sum(dim=-1)
+    values = values.sum(dim=-1).view(batch, dist_length)
     return values
 
 

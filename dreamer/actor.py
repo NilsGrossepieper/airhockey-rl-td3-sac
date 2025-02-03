@@ -7,7 +7,7 @@ import torch.nn.functional as F
 # Actor Model
 # a_t ∼ π_θ(a_t | h_t, z_t) 
 class Actor(nn.Module):
-    def __init__(self, recurrent_hidden_dim, latent_dim, latent_categories_size, model_dim, action_dim, action_bins):
+    def __init__(self, recurrent_hidden_dim, latent_dim, latent_categories_size, model_dim, action_dim, action_bins, device):
         super().__init__()
         self.recurrent_hidden_dim = recurrent_hidden_dim
         self.latent_dim = latent_dim
@@ -15,6 +15,7 @@ class Actor(nn.Module):
         self.model_dim = model_dim
         self.action_dim = action_dim
         self.action_bins = action_bins
+        self.device = device
 
         input_dim = recurrent_hidden_dim + latent_dim * latent_categories_size
         output_dim = action_dim * action_bins
@@ -22,7 +23,7 @@ class Actor(nn.Module):
             nn.Linear(input_dim, model_dim),
             nn.ReLU(),
             nn.Linear(model_dim, output_dim), 
-        )
+        ).to(device)
 
     
     def forward(self, h, z):

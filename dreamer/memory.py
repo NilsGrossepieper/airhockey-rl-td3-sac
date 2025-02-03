@@ -23,7 +23,7 @@ class Memory: # TODO: Make into dataloader
         self.index = (self.index + 1) % self.capacity
         self.full = self.full or self.index == 0
 
-    def sample(self, batch_size, seq_len=1):
+    def sample_for_world_model(self, batch_size, seq_len=1):
         max_index = self.capacity if self.full else self.index
 
         number_of_blocks = max_index // seq_len
@@ -61,7 +61,13 @@ class Memory: # TODO: Make into dataloader
             latents,
         )
     
-    def update(self, start_indices, latents):
+    def update_latents(self, start_indices, latents):
         seq_len = latents.shape[1]
         for i, start_idx in enumerate(start_indices):
             self.latents[start_idx: start_idx + seq_len] = latents[i].clone().detach()
+
+
+    def sample_for_imagination(self, batch_size):
+        max_index = self.capacity if self.full else self.index
+        chosen_indices = torch.randint(0, max_index, (batch_size,))
+        return self.latents[chosen_indices]
