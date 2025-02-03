@@ -92,19 +92,25 @@ class DreamerV3():
         
         # Generate imagined trajections
         latents = self.memory.sample_for_imagination(batch_size)
-        h_imag, z_imag, a_imag, r_imag, c_imag = self.world_model.imagine(z_0=latents, 
+        h_imag, z_imag, a_all_probs_imag,a_taken_probs, r_imag, c_imag = self.world_model.imagine(z_0=latents, 
                                                      actor=self.actor,
                                                      imag_horizon=self.imag_horizon)
         
         # Train the critic
-        loss_critic = self.critic.train(z=z_imag,
-                                        h=h_imag,
-                                        r=r_imag,
-                                        c=c_imag,
+        loss_critic, R_lambda, v = self.critic.train(z=z_imag.detach(),
+                                        h=h_imag.detach(),
+                                        r=r_imag.detach(),
+                                        c=c_imag.detach(),
                                         gamma=0.997,
                                         lambda_=0.95)
+        
+        # Train the actor
+        loss_actor = self.actor.train(R_lambda=R_lambda.detach(),
+                         v=v.detach(),
+                         all_probs=a_all_probs_imag,
+                         taken_probs=a_taken_probs)
 
 
-        return loss_world, loss_critic
+        return loss_world, loss_critic, loss_actor
         
 

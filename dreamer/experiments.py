@@ -39,14 +39,16 @@ max_steps = 100
 
 world_losses = []
 critic_losses = []
+actor_losses = []
 for step in range(number_of_training_steps):
     d.generate_trajectories(number_of_trajectories,max_steps)
 
     for _ in range(replay_ratio * number_of_trajectories * max_steps):
-        world_loss, critic_loss = d.train(batch_size, seq_len) # TODO: first get the data then calculate the latents
+        world_loss, critic_loss, actor_loss = d.train(batch_size, seq_len) # TODO: first get the data then calculate the latents
         world_losses.append(world_loss)
         critic_losses.append(critic_loss)
-        print(f"Step {step} Losses: {world_loss[0].item():.2f} {world_loss[1].item():.2f} {world_loss[2].item():.2f}    {critic_loss:.2f}")
+        actor_losses.append(actor_loss)
+        print(f"Step {step} Losses: {world_loss[0].item():.2f} {world_loss[1].item():.2f} {world_loss[2].item():.2f}    {critic_loss:.2f}   {actor_loss:.2f}")
 
     
 

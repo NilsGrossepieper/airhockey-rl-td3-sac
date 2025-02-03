@@ -63,13 +63,14 @@ class Critic(nn.Module):
                      z.view(-1, self.latent_dim * self.latent_categories_size),
                      use_target=True)
         v_target = v_target.view(batch_size, imag_horizon + 1, -1)
-        v_num = utils.get_value_from_distribution(v_target, -1, 1).unsqueeze(-1)
-        R_lambda_num = self.compute_lambda_return(r, c, v_num, gamma, lambda_)
+        v_target_num = utils.get_value_from_distribution(v_target, -1, 1).unsqueeze(-1)
+        R_lambda_num = self.compute_lambda_return(r, c, v_target_num, gamma, lambda_)
         R_lambda = utils.get_twohot_from_value(R_lambda_num.squeeze(dim=-1), self.bins, -1, 1)
 
         v = self(h.view(-1, self.recurrent_hidden_dim),
                      z.view(-1, self.latent_dim * self.latent_categories_size),
                      use_target=False)
+        v_num = utils.get_value_from_distribution(v.view(batch_size, imag_horizon + 1, -1), -1, 1).unsqueeze(-1)
         # Update critic network
         critic_loss = F.cross_entropy(v.view(-1, self.bins), R_lambda.view(-1,self.bins))
         self.optimizer.zero_grad()
@@ -79,7 +80,7 @@ class Critic(nn.Module):
         # Apply EMA update to the target network
         self.update_target_critic()
 
-        return critic_loss.item()
+        return critic_loss.item(), R_lambda_num[:,:-1,:], v_num[:,:-1,:] 
 
     def update_target_critic(self):
         """
