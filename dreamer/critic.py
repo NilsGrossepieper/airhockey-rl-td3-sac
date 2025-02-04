@@ -18,7 +18,7 @@ class Critic(nn.Module):
         self.max_reward = max_reward
 
         input_dim = recurrent_hidden_dim + latent_dim * latent_categories_size
-        output_dim = bins
+        output_dim = 1
         self.model = nn.Sequential(
             nn.Linear(input_dim, model_dim),
             nn.ReLU(),
@@ -37,24 +37,16 @@ class Critic(nn.Module):
         self.optimizer = torch.optim.Adam(self.parameters(), lr=4e-4)
         self.tau = 0.98
 
-    def forward(self, h, z, use_target=False, return_logits=False):
+    def forward(self, h, z, use_target=False):
         """
         h: (batch_size, recurrent_hidden_dim)
         z: (batch_size, latent_dim * latent_categories_size)
         """
         s = torch.cat((h, z), dim=-1)
         if use_target:
-            logits = self.target(s)
-            if return_logits:
-                return logits
-            probs = F.softmax(logits, dim=-1)
+            return self.target(s)
         else:
-            logits = self.model(s)
-            if return_logits:
-                return logits
-            probs = F.softmax(logits, dim=-1)
-        
-        return probs
+            return self.model(s)
     
     def train(self, z, h, r, c, gamma, lambda_):
         """
@@ -69,17 +61,14 @@ class Critic(nn.Module):
                      z.view(-1, self.latent_dim * self.latent_categories_size),
                      use_target=True)
         v_target = v_target.view(batch_size, imag_horizon + 1, -1)
-        v_target_num = utils.get_value_from_distribution(v_target, self.min_reward, self.max_reward).unsqueeze(-1)
-        R_lambda_num = self.compute_lambda_return(r, c, v_target_num, gamma, lambda_)
-        R_lambda = utils.get_twohot_from_value(R_lambda_num.squeeze(dim=-1), self.bins, self.min_reward, self.max_reward)
-
-        v_logits = self(h.view(-1, self.recurrent_hidden_dim),
+        R_lambda = self.compute_lambda_return(r, c, v_target, gamma, lambda_)
+        
+        v = self(h.view(-1, self.recurrent_hidden_dim),
                      z.view(-1, self.latent_dim * self.latent_categories_size),
-                     use_target=False, return_logits=True)
-        v = F.softmax(v_logits, dim=-1)
-        v_num = utils.get_value_from_distribution(v.view(batch_size, imag_horizon + 1, -1), -1, 1).unsqueeze(-1)
+                     use_target=False)
+        v = v.view(batch_size, imag_horizon + 1, -1)
         # Update critic network
-        critic_loss = F.cross_entropy(v_logits.view(-1, self.bins), R_lambda.view(-1,self.bins))
+        critic_loss = F.mse_loss(v, R_lambda)
         self.optimizer.zero_grad()
         critic_loss.backward()
         self.optimizer.step()
@@ -87,7 +76,7 @@ class Critic(nn.Module):
         # Apply EMA update to the target network
         self.update_target_critic()
 
-        return critic_loss.item(), R_lambda_num[:,:-1,:], v_num[:,:-1,:] 
+        return critic_loss.item(), R_lambda[:,:-1,:], v[:,:-1,:] 
 
     def update_target_critic(self):
         """

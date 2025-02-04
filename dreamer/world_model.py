@@ -162,10 +162,10 @@ class RewardPredictor(nn.Module):   # TODO: initially predicts 0
         self.model = nn.Sequential(
             nn.Linear(input_dim, model_dim),
             nn.ReLU(),
-            nn.Linear(model_dim, output_dim * bins)
+            nn.Linear(model_dim, output_dim)
         )
 
-    def forward(self, h, z, return_logits=True):    # TODO: Check if z is a list of tensors
+    def forward(self, h, z,):    # TODO: Check if z is a list of tensors
         """
         h: Tensor of shape (batch_size, hidden_dim)
         z: Tensor of shape (batch_size, latent_dim * embedding_dim)
@@ -173,11 +173,8 @@ class RewardPredictor(nn.Module):   # TODO: initially predicts 0
  
         # Concatenate h with embedded latent variables
         input_tensor = torch.cat([h, z], dim=-1)
-        logits = self.model(input_tensor).view(-1, self.bins)
-        if return_logits:
-            return logits
-        else:
-            return F.softmax(logits, dim=-1)
+        r = self.model(input_tensor)
+        return r
 
 # Continue predictor:
 # ĉ_t ~ p_ϕ(ĉ_t | h_t, z_t)
@@ -324,10 +321,9 @@ class WorldModel():
             a_t_taken_probs = torch.gather(a_t_all_probs, dim=-1, index=a_t_index)  
             a_t_cat = a_t_cat.view(-1, self.action_dim, self.bins)  # (batch_size, action_dim, action_bins)
 
-            r_t_cat = self.reward_predictor(h_t, z_t_long, return_logits=False).unsqueeze(dim=1) # (batch_size, 1, bins)
+            r_t = self.reward_predictor(h_t, z_t_long) # (batch_size, 1)
             c_t_cat = self.continue_predictor(h_t, z_t_long)                # (batch_size, 1)
 
-            r_t = utils.get_value_from_distribution(r_t_cat, self.min_reward, self.max_reward)     # (batch_size, 1)
             a_t = utils.get_value_from_distribution(a_t_cat, -1, 1)     # (batch_size, action_dim)
             c_t = (c_t_cat > 0.5).float().to(self.device)               # (batch_size, 1)
 
@@ -391,8 +387,8 @@ class WorldModel():
         # L_pred
         x_out = self.decoder(h, z_new_long)
         r_out = self.reward_predictor(h, z_new_long)
-        c_out = self.continue_predictor(h, z_new_long)
-        loss_pred = mse_loss(x_out,x) + F.cross_entropy(r_out, utils.get_twohot_from_value(r, self.bins, self.min_reward, self.max_reward).squeeze(dim=1)) + F.cross_entropy(c_out, c)
+        #c_out = self.continue_predictor(h, z_new_long)
+        loss_pred = mse_loss(x_out,x) + l1_loss(r_out,r) #+ F.cross_entropy(c_out, c)
 
         # L_dyn + L_enc
         # already computed
