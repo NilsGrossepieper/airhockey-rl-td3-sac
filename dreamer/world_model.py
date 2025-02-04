@@ -276,7 +276,7 @@ class WorldModel():
                 list(self.continue_predictor.parameters()) + \
                 list(self.decoder.parameters())
                 
-        self.optimizer = optim.Adam(params, lr=4e-4)
+        self.optimizer = optim.Adam(params, lr=4e-3)
 
     def get_latent(self, h, x):
         """

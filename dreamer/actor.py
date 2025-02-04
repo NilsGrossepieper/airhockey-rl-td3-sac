@@ -16,7 +16,7 @@ class Actor(nn.Module):
         self.action_dim = action_dim
         self.action_bins = action_bins
         self.device = device
-        self.eta = 3e-4
+        self.eta = 3e-2
         
         input_dim = recurrent_hidden_dim + latent_dim * latent_categories_size
         output_dim = action_dim * action_bins
@@ -66,7 +66,7 @@ class Actor(nn.Module):
         log_probs = torch.log(taken_probs + 1e-6)  # Avoid log(0) 
         entropy = -torch.sum(all_probs * torch.log(all_probs + 1e-6), dim=-1)
 
-        policy_loss = - (advantage * log_probs).sum(dim=-1) + self.eta * torch.sum(entropy, dim=-1)
+        policy_loss = - (advantage * log_probs).sum(dim=-1) - self.eta * torch.sum(entropy, dim=-1)
         
         self.optimizer.zero_grad()
         policy_loss.mean().backward()

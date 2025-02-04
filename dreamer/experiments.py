@@ -26,22 +26,22 @@ d = dm.DreamerV3(
     render=True,
     obs_dim=env.observation_space.shape[0],
     action_dim=env.action_space.shape[0] // 2,
-    latent_dim=32,
-    latent_categories_size=32,
+    latent_dim=16,
+    latent_categories_size=16,
     model_dim=256,
     num_blocks=8,
     imagination_horizon=15,
     capacity=10000,
     replay_ratio=32,
     imag_horizon=15,
-    bins=15,
+    bins=5,
     min_reward=-10,
     max_reward=10,
     device=device)  
 
-replay_ratio = 32
+replay_ratio = 128
 
-number_of_training_steps = 1000
+number_of_training_steps = 10000
 batch_size = 16
 seq_len = 64
 number_of_trajectories = 25

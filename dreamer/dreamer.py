@@ -91,7 +91,8 @@ class DreamerV3():
             z_0 = self.world_model.get_latent(self.h_0, self.obs_0)
             
             # TODO: implement weak, strong and self-play also
-            a_enemy = (torch.rand(4) - 0.5) * 2   
+            #a_enemy = (torch.rand(4) - 0.5) * 2   
+            a_enemy = np.array([0,0,0,0])
             a_0 = self.actor.get_action(self.h_0, z_0)
             a_0_numpy = a_0.cpu().detach().numpy()
             
