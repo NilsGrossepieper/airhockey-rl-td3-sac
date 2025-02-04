@@ -14,11 +14,11 @@ class Memory: # TODO: Make into dataloader
         self.latents = torch.zeros((capacity, latent_dim, latent_categories_dim), dtype=torch.float32, device=device)
         
     def add(self, obs, action, reward, done, latent):
-        self.obs[self.index] = torch.tensor(obs, device=self.device).clone().detach()
+        self.obs[self.index] = obs.clone().detach()
         self.actions[self.index] = action
         self.rewards[self.index] = reward
         self.dones[self.index] = done
-        self.latents[self.index] = torch.tensor(latent, device=self.device).clone().detach()
+        self.latents[self.index] = latent.clone().detach()
         
         self.index = (self.index + 1) % self.capacity
         self.full = self.full or self.index == 0

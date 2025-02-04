@@ -251,7 +251,7 @@ class Decoder(nn.Module):
         return self.model(input_tensor)
     
 class WorldModel():
-    def __init__(self, latent_dim, action_dim, obs_size, latent_categories_size, model_dim, bins, num_blocks=8, device='cpu'):
+    def __init__(self, latent_dim, action_dim, obs_size, latent_categories_size, model_dim, bins, min_reward, max_reward, num_blocks=8, device='cpu'):
         super().__init__()
         self.latent_dim = latent_dim
         self.action_dim = action_dim
@@ -261,6 +261,8 @@ class WorldModel():
         self.bins = bins
         self.num_blocks = num_blocks
         self.device = device
+        self.min_reward = min_reward
+        self.max_reward = max_reward
         
         
         self.sequence_model = SequenceModel(latent_dim, latent_categories_size, action_dim, model_dim, num_blocks, device).to(device)
@@ -279,24 +281,27 @@ class WorldModel():
                 
         self.optimizer = optim.Adam(params, lr=4e-4)
 
-    def get_encoding_and_recurrent_hidden(self, h, x, a):
-        # TODO: currently only supports a single sequence
-        # h = (batch_size, model_dim * num_blocks)
-        # x = (obs_size)
-        # a = (action_dim)
-        # but (batch_size, seq_len, ...) is needed for sequence_model
+    def get_latent(self, h, x):
+        """
+        h = (model_dim * num_blocks)
+        x = (obs_size)
+        returns: z = (1, latent_dim, latent_categories_size)
+        """
+        z, _ = self.encoder(h, x.unsqueeze(dim=0))
+        return z
+    def get_recurrent_hidden(self, h, z, a):
+        """
+        h = (1, model_dim * num_blocks)
+        z = (1, latent_dim, latent_categories_size)
+        a = (action_dim)
+        """
+        h = h.view(1,1,-1)
+        z = z.view(1,1,-1)
+        a = a.view(1,1,-1)
 
-        if x.dim() == 1:
-            x = x.unsqueeze(dim=0)        
-        z, _ = self.encoder(h, x)
-
-
-        z_t = z.view(-1, 1, self.latent_dim * self.latent_categories_size)
-        
-        a_t = a.view(-1, 1, self.action_dim)
-        new_h = self.sequence_model(z_t, a_t, h) # (batch_size, seq_len, num_blocks * model_dim), but seq_len is 1
+        new_h = self.sequence_model(z, a, h) # (batch_size, seq_len, num_blocks * model_dim), but seq_len is 1
         new_h = new_h.squeeze(dim=1)
-        return z, new_h
+        return new_h
     
     def imagine(self, z_0, actor, imag_horizon):
         '''
@@ -306,24 +311,30 @@ class WorldModel():
         z = []
         r = []
         c = []
-        a = []
+        a_all_probs = []
+        a_taken_probs = []
         #TODO: this is only pseudocode almost, need to check dimensions
         #TODO: do we need probs or just the sampled values?
         h_t = self.get_default_hidden(z_0.shape[0])
         z_t = z_0
         for _ in range(imag_horizon):
             z_t_long = z_t.view(-1, self.latent_dim * self.latent_categories_size)  # (batch_size, latent_dim * latent_categories_size)
-            a_t_cat = actor(h_t, z_t_long)[0].view(-1, self.action_dim, self.bins)  # (batch_size, action_dim, action_bins)
+            a_t_cat, a_t_all_probs = actor(h_t, z_t_long)
+            a_t_index = torch.argmax(a_t_cat, dim=-1, keepdim=True)
+            a_t_taken_probs = torch.gather(a_t_all_probs, dim=-1, index=a_t_index)  
+            a_t_cat = a_t_cat.view(-1, self.action_dim, self.bins)  # (batch_size, action_dim, action_bins)
+
             r_t_cat = self.reward_predictor(h_t, z_t_long, return_logits=False).unsqueeze(dim=1) # (batch_size, 1, bins)
             c_t_cat = self.continue_predictor(h_t, z_t_long)                # (batch_size, 1)
 
-            r_t = utils.get_value_from_distribution(r_t_cat, -1, 1)     # (batch_size, 1)
+            r_t = utils.get_value_from_distribution(r_t_cat, self.min_reward, self.max_reward)     # (batch_size, 1)
             a_t = utils.get_value_from_distribution(a_t_cat, -1, 1)     # (batch_size, action_dim)
             c_t = (c_t_cat > 0.5).float().to(self.device)               # (batch_size, 1)
 
             h.append(h_t)
             z.append(z_t_long)
-            a.append(a_t)
+            a_all_probs.append(a_t_all_probs)
+            a_taken_probs.append(a_t_taken_probs)
             r.append(r_t)
             c.append(c_t)
 
@@ -337,12 +348,13 @@ class WorldModel():
         
         h = torch.stack(h, dim=1) # (batch_size, imag_horizon + 1, recurrent_hidden_dim * num_blocks)
         z = torch.stack(z, dim=1) # (batch_size, imag_horizon + 1, latent_dim * latent_categories_size)
-        a = torch.stack(a, dim=1) # (batch_size, imag_horizon, action_dim)
+        a_all_probs = torch.stack(a_all_probs, dim=1) # (batch_size, imag_horizon, action_dim, bins)
+        a_taken_probs = torch.stack(a_taken_probs, dim=1).squeeze(dim=-1) # (batch_size, imag_horizon, action_dim)
         r = torch.stack(r, dim=1) # (batch_size, imag_horizon, 1)
         c = torch.stack(c, dim=1) # (batch_size, imag_horizon, 1)
 
         
-        return h, z, a, r, c
+        return h, z, a_all_probs, a_taken_probs, r, c
     
     def get_default_hidden(self, batch_size=1):
         return self.sequence_model.get_default_hidden(batch_size)
@@ -359,6 +371,7 @@ class WorldModel():
         seq_len = x.shape[1]
         # Train the world model
         l1_loss = nn.L1Loss()
+        mse_loss = nn.MSELoss()
         kl_loss = nn.KLDivLoss(reduction="batchmean", log_target=True)
 
         
@@ -379,7 +392,7 @@ class WorldModel():
         x_out = self.decoder(h, z_new_long)
         r_out = self.reward_predictor(h, z_new_long)
         c_out = self.continue_predictor(h, z_new_long)
-        loss_pred = l1_loss(x_out,x) + F.cross_entropy(r_out, utils.get_twohot_from_value(r, self.bins, -1, 1).squeeze(dim=1)) + F.cross_entropy(c_out, c)
+        loss_pred = mse_loss(x_out,x) + F.cross_entropy(r_out, utils.get_twohot_from_value(r, self.bins, self.min_reward, self.max_reward).squeeze(dim=1)) + F.cross_entropy(c_out, c)
 
         # L_dyn + L_enc
         # already computed

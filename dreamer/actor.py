@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
+import utils
 
 
 # Actor Model
@@ -39,13 +39,30 @@ class Actor(nn.Module):
         
         dist = torch.distributions.Categorical(probs=probs)
         sampled = dist.sample()
-        hard_sampled = F.one_hot(sampled, num_classes=self.latent_categories_size).float()
+        hard_sampled = F.one_hot(sampled, num_classes=self.action_bins).float()
         sampled_straight = hard_sampled + probs - probs.detach()
 
         return sampled_straight, probs
     
+    def get_action(self, h, z):
+        """
+        h: (1, recurrent_hidden_dim)
+        z: (1, latent_dim, latent_categories_size)
+        """
+        s = torch.cat((h, z.view(1, -1)), dim=-1)
+        logits = self.model(s).view(-1, self.action_dim, self.action_bins)
+        probs = F.softmax(logits, dim=-1)
+        
+        dist = torch.distributions.Categorical(probs=probs)
+        sampled = dist.sample()
+        hard_sampled = F.one_hot(sampled, num_classes=self.action_bins).float()
+        a = utils.get_value_from_distribution(hard_sampled, -1, 1)
+
+        return a.squeeze(0)
+
     def train(self, R_lambda, v, all_probs, taken_probs):
         advantage = R_lambda - v
+        #advantage *= -1
         log_probs = torch.log(taken_probs + 1e-6)  # Avoid log(0) 
         entropy = -torch.sum(all_probs * torch.log(all_probs + 1e-6), dim=-1)
 

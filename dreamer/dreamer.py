@@ -13,6 +13,7 @@ import numpy as np
 class DreamerV3():
     def __init__(self,
                  env,
+                 render,
                  obs_dim, 
                  action_dim, 
                  latent_dim, 
@@ -24,6 +25,8 @@ class DreamerV3():
                  replay_ratio,
                  imag_horizon,
                  bins,
+                 min_reward,
+                 max_reward,
                  device,
                  **kwargs):
         
@@ -39,16 +42,29 @@ class DreamerV3():
         self.num_blocks = num_blocks
         self.imag_horizon = imag_horizon
         self.bins = bins
-        
+        self.min_reward = min_reward
+        self.max_reward = max_reward
+        self.render = render
 
 
-        self.world_model = WorldModel(latent_dim, action_dim, obs_dim, latent_categories_size, model_dim, bins, num_blocks, device=device)
+        self.world_model = WorldModel(latent_dim=latent_dim,
+                                      action_dim=action_dim,
+                                      obs_size=obs_dim,
+                                      latent_categories_size=latent_categories_size,
+                                      model_dim=model_dim,
+                                      bins=bins,
+                                      min_reward=min_reward,
+                                      max_reward=max_reward,
+                                      num_blocks=num_blocks,
+                                      device=device)
         self.memory = Memory(capacity, obs_dim, action_dim, latent_dim, latent_categories_size, device=device)
         self.critic = Critic(recurrent_hidden_dim=model_dim * num_blocks,
                            latent_dim=latent_dim,
                            latent_categories_size=latent_categories_size,
                            model_dim=model_dim,
                            bins=bins,
+                           min_reward=min_reward,
+                           max_reward=max_reward,
                            device=device)
         self.actor = Actor(
             recurrent_hidden_dim=model_dim * num_blocks,
@@ -59,29 +75,37 @@ class DreamerV3():
             action_bins=bins,
             device=device)
 
-    def generate_trajectories(self, number_of_trajectories, max_steps):
-        for traj in range(number_of_trajectories):
-            obs_0, info = self.env.reset()
-            h_0 = self.world_model.get_default_hidden()
-            for step in range(max_steps):
-                #a_0 = (torch.rand(4) - 0.5) * 2  #Actor generates action
-                #a_enemy = (torch.rand(4) - 0.5) * 2   
-                a_0 = torch.tensor([0.1, 0.1, 0.1, 0.0], dtype=torch.float32)
-                a_enemy = torch.tensor([-0.1, -0.1, -0.1, 0.0], dtype=torch.float32)
-
-                obs_1, r, d, t, info = self.env.step(np.hstack([a_0,a_enemy]))
-                
-                obs_0_t = torch.tensor(obs_0, dtype=torch.float32, device=self.device)
-                a_0 = torch.tensor(a_0, dtype=torch.float32, device=self.device)
-                 
-                latent, h_1 = self.world_model.get_encoding_and_recurrent_hidden(h_0, obs_0_t, a_0)
-                self.memory.add(obs_0, a_0, r / 10, (1-d), latent) # r/10!
-                
-                obs_0 = obs_1
-                h_0 = h_1
-                if (d):
-                    break
-            print(f"Trajectory {traj} completed.")
+        self.env_reset = True
+        self.h_0 = None
+        self.obs_0 = None
+    def generate_samples(self, number_of_samples):
+        rs = []
+        for _ in range(number_of_samples):
+            if self.env_reset:
+                self.obs_0, info = self.env.reset()
+                self.h_0 = self.world_model.get_default_hidden()
+                self.env_reset = False
+            if self.render:
+                self.env.render(mode="human")
+            self.obs_0 = torch.tensor(self.obs_0, dtype=torch.float32, device=self.device)
+            z_0 = self.world_model.get_latent(self.h_0, self.obs_0)
+            
+            # TODO: implement weak, strong and self-play also
+            a_enemy = (torch.rand(4) - 0.5) * 2   
+            a_0 = self.actor.get_action(self.h_0, z_0)
+            a_0_numpy = a_0.cpu().detach().numpy()
+            
+            obs_1, r, d, t, info = self.env.step(np.hstack([a_0_numpy,a_enemy]))
+                            
+            self.memory.add(self.obs_0, a_0, r, (1-d), z_0) # r/100!
+            
+            self.h_0 = self.world_model.get_recurrent_hidden(self.h_0, z_0, a_0)
+            self.obs_0 = obs_1
+            if (d):
+                self.env_reset = True
+            rs.append(r)
+        return np.mean(rs)
+            
 
 
     def train(self, batch_size, seq_len):
