@@ -1,6 +1,7 @@
+
 from sac import SAC
 import numpy as np
-import sys
+import datetime as datetime
 import os
 import torch
 from dynamic_env import DynamicEnvironment
@@ -8,7 +9,6 @@ from dynamic_env import DynamicEnvironment
 torch.cuda.empty_cache()
 torch.cuda.synchronize()
 os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
-
 
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -27,10 +27,12 @@ agent = SAC(
     device=device)  
 
 dyn_env.add_agent(agent)
+agent.save(f"checkpoints/sac_0.pth")
 
 number_of_training_episodes = 10000
 
 render = True
+save_every_n_episodes = 100
 
 
 rews = []
@@ -45,8 +47,10 @@ obs, info = dyn_env.reset()
 obs = torch.tensor(obs, dtype=torch.float32, device=device)
 while episode < number_of_training_episodes:
     if d:
-        obs, info = dyn_env.reset()
         episode += 1
+        if episode % save_every_n_episodes == 0:
+            agent.save(f"checkpoints/sac_{episode}.pth")
+        obs, info = dyn_env.reset()
         obs = torch.tensor(obs, dtype=torch.float32, device=device)
         evaluation_string = dyn_env.get_evaluation()
         print(f"Step {episode: 5} Reward:{np.sum(rews): .4f} Losses: {np.mean(q1_losses): .2f} {np.mean(q2_losses): .2f} {np.mean(policy_losses): .2f} {np.mean(alphas): .2f} {evaluation_string}")
@@ -80,6 +84,8 @@ while episode < number_of_training_episodes:
         policy_losses.append(policy_loss)
         alphas.append(alpha)
     rews.append(r)
+
+    
 
     
 

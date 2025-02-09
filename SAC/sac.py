@@ -8,8 +8,8 @@ from q_network import QNetwork
 
 class SAC():
     def __init__(self,
-                 obs_dim,
-                 action_dim,
+                 obs_dim=18,
+                 action_dim=4,
                  max_action=1,
                  gamma=0.99,
                  model_dim=256,
@@ -126,3 +126,44 @@ class SAC():
         self.update_target_networks()
 
         return q_1_loss.item(), q_2_loss.item(), policy_loss.item(), self.alpha
+    
+    def save(self, pth):
+        checkpoint = {
+            "q1_state_dict": self.q1_net.state_dict(),
+            "q2_state_dict": self.q2_net.state_dict(),
+            "q1_target_state_dict": self.q1_target_net.state_dict(),
+            "q2_target_state_dict": self.q2_target_net.state_dict(),
+            "policy_state_dict": self.policy_net.state_dict(),
+
+            "q1_optimizer_state_dict": self.q1_net.optimizer.state_dict(),
+            "q2_optimizer_state_dict": self.q2_net.optimizer.state_dict(),
+            "q1_target_optimizer_state_dict": self.q1_target_net.optimizer.state_dict(),
+            "q2_target_optimizer_state_dict": self.q2_target_net.optimizer.state_dict(),
+            "policy_optimizer_state_dict": self.policy_net.optimizer.state_dict(),
+            "hyperparameters": {
+                "gamma": self.gamma,
+                "tau": self.tau,
+                "alpha": self.alpha,
+                "learning_rate": self.lr
+            }
+        }
+        torch.save(checkpoint, pth)
+
+    def load(self, pth):
+        checkpoint = torch.load(pth, map_location=self.device)
+        self.q1_net.load_state_dict(checkpoint["q1_state_dict"])
+        self.q2_net.load_state_dict(checkpoint["q2_state_dict"])
+        self.q1_target_net.load_state_dict(checkpoint["q1_target_state_dict"])
+        self.q2_target_net.load_state_dict(checkpoint["q2_target_state_dict"])
+        self.policy_net.load_state_dict(checkpoint["policy_state_dict"])
+
+        self.q1_net.optimizer.load_state_dict(checkpoint["q1_optimizer_state_dict"])
+        self.q2_net.optimizer.load_state_dict(checkpoint["q2_optimizer_state_dict"])
+        self.q1_target_net.optimizer.load_state_dict(checkpoint["q1_target_optimizer_state_dict"])
+        self.q2_target_net.optimizer.load_state_dict(checkpoint["q2_target_optimizer_state_dict"])
+        self.policy_net.optimizer.load_state_dict(checkpoint["policy_optimizer_state_dict"])
+
+        self.gamma = checkpoint["hyperparameters"]["gamma"]
+        self.tau = checkpoint["hyperparameters"]["tau"]
+        self.alpha = checkpoint["hyperparameters"]["alpha"]
+        self.lr = checkpoint["hyperparameters"]["learning_rate"]

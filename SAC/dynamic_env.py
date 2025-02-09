@@ -2,6 +2,7 @@ import sys
 import os
 import numpy as np
 import random
+from sac import SAC
 
 sys.path.append(os.path.abspath('./hockey_env/hockey'))
 import hockey_env as h_env
@@ -17,7 +18,8 @@ class DynamicEnvironment():
         self.outcomes = {}
         self.opponents = {"weak": h_env.BasicOpponent(weak=True),
                           #"random": RandomAgent(),
-                          "strong": h_env.BasicOpponent(weak=False)}
+                          "strong": h_env.BasicOpponent(weak=False),
+                          "self": SAC()}
         for name in self.opponents.keys():
             self.outcomes[name] = []
         
@@ -25,10 +27,6 @@ class DynamicEnvironment():
         
         self.current_player2_name = None
 
-        
-    def add_agent(self, agent):
-        self.opponents["self"] = agent
-        self.outcomes["self"] = []
 
     def reset(self):
         self.counter += 1
@@ -41,7 +39,23 @@ class DynamicEnvironment():
         else:
             self.current_player2_name = random.choice(list(self.opponents.keys()))
         
+        if self.current_player2_name == "self":
+            filenames = os.listdir("checkpoints")
+            file_dict = {fname: int(fname.split('_')[1].split('.')[0]) for fname in filenames}
+            sorted_filenames = sorted(file_dict.keys(), key=lambda x: file_dict[x])
+            episode_numbers = np.array([file_dict[fname] for fname in sorted_filenames])
+            if len(sorted_filenames) == 1:
+                random_filename = sorted_filenames[0]
+            else:
+                weights = np.exp(episode_numbers / episode_numbers.max())  
+                weights /= weights.sum()  
+                random_filename = np.random.choice(sorted_filenames, p=weights)
+            self.opponents["self"].load(f"checkpoints/{random_filename}")
+        
         return self.env.reset(one_starting=self.counter % 2 == 0)
+    
+    def add_agent(self, agent):
+        self.agent = agent
     
     def step(self, action):
         obs_agent2 = self.env.obs_agent_two()
@@ -84,13 +98,12 @@ class DynamicEnvironment():
 
         player2_name = list(self.opponents.keys())[player2_idx]
         player2 = self.opponents[player2_name]
-        player_self = self.opponents["self"]
         obs, info = self.env.reset(one_starting=one_starting)
         d = False
         while not d:
             obs_agent2 = self.env.obs_agent_two()
             a_enemy = player2.act(obs_agent2)
-            a = player_self.act(obs)
+            a = self.agent.act(obs)
 
             obs, r, d, t, info = self.env.step(np.hstack([a, a_enemy]))
         self.add_outcome(player2_name, info)
