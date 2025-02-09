@@ -6,6 +6,7 @@ import os
 import torch
 from dynamic_env import DynamicEnvironment
 import argparse
+import wandb
 
 torch.cuda.empty_cache()
 torch.cuda.synchronize()
@@ -38,6 +39,7 @@ if args.save_folder is None:
     args.save_folder = f"checkpoints/{timestamp}"
 os.makedirs(args.save_folder, exist_ok=True)
 
+wandb.init(project="Hockey-RL", config=vars(args), name=timestamp)  
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 dyn_env = DynamicEnvironment(args)
@@ -74,12 +76,34 @@ while episode < args.training_episodes:
         obs = torch.tensor(obs, dtype=torch.float32, device=device)
         evaluation_string = dyn_env.get_evaluation()
         print(f"Step {episode: 5} Reward:{np.sum(rews): .4f} Losses: {np.mean(q1_losses): .2f} {np.mean(q2_losses): .2f} {np.mean(policy_losses): .2f} {np.mean(alphas): .2f} {evaluation_string}")
+        
+
+        wandb.log({"Reward": np.sum(rews)},step=episode)
+        wandb.log({
+                   "q1_loss": np.mean(q1_losses),
+                   "q2_loss": np.mean(q2_losses),
+                   "policy_loss": np.mean(policy_losses),
+                   "alpha": np.mean(alphas)},
+                   step=episode)
+        
+        for name, outcome in dyn_env.outcomes.items():
+            wins = outcome.count(1)
+            draws = outcome.count(0)
+            losses = outcome.count(-1)
+
+            wandb.log({
+                f"outcomes/{name}_wins": wins,
+                f"outcomes/{name}_draws": draws,
+                f"outcomes/{name}_losses": losses}
+                ,step=episode)
+            
+
         rews = []
         q1_losses = []
         q2_losses = []
         policy_losses = []
         alphas = []
-    
+
 
     
     
