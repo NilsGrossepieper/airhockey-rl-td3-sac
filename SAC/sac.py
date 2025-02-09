@@ -8,51 +8,44 @@ from q_network import QNetwork
 
 class SAC():
     def __init__(self,
+                 args,
                  obs_dim=18,
                  action_dim=4,
                  max_action=1,
-                 gamma=0.99,
-                 model_dim=256,
-                 capacity=1_000_000,
-                 batch_size=256,
-                 lr=3e-4,
-                 tau=0.005,
-                 alpha=0.2,
-                 entropy_tuning=None,
                  device="cpu"):
     
         self.obs_dim = obs_dim
         self.action_dim = action_dim
         self.max_action = max_action
-        self.gamma = gamma
-        self.model_dim = model_dim
-        self.capacity = capacity
-        self.batch_size = batch_size
-        self.lr = lr
-        self.tau = tau
-        self.alpha = alpha
-        self.entropy_tuning = entropy_tuning
+        self.gamma = args.gamma
+        self.model_dim = args.model_dim
+        self.capacity = args.capacity
+        self.batch_size = args.batch_size
+        self.lr = args.lr
+        self.tau = args.tau
+        self.alpha = args.alpha
+        self.entropy_tuning = args.entropy_tuning
         self.device = device
 
         # Memory
-        self.memory = Memory(capacity, obs_dim, action_dim, device)
+        self.memory = Memory(self.capacity, obs_dim, action_dim, device)
 
         if self.entropy_tuning=="adaptive":
             self.target_entropy = -action_dim
-            self.log_alpha = torch.tensor(torch.log(torch.tensor(alpha, dtype=torch.float32)), requires_grad=True, device=device)
-            self.alpha_optimizer = torch.optim.Adam([self.log_alpha], lr=lr)
+            self.log_alpha = torch.tensor(torch.log(torch.tensor(self.alpha, dtype=torch.float32)), requires_grad=True, device=device)
+            self.alpha_optimizer = torch.optim.Adam([self.log_alpha], lr=self.lr)
         
 
         # Q networks
-        self.q1_net = QNetwork(obs_dim, action_dim, model_dim, lr, device)
-        self.q2_net = QNetwork(obs_dim, action_dim, model_dim, lr, device)
-        self.q1_target_net = QNetwork(obs_dim, action_dim, model_dim, lr, device)
-        self.q2_target_net = QNetwork(obs_dim, action_dim, model_dim, lr, device)
+        self.q1_net = QNetwork(obs_dim, action_dim, self.model_dim, self.lr, device)
+        self.q2_net = QNetwork(obs_dim, action_dim, self.model_dim, self.lr, device)
+        self.q1_target_net = QNetwork(obs_dim, action_dim, self.model_dim, self.lr, device)
+        self.q2_target_net = QNetwork(obs_dim, action_dim, self.model_dim, self.lr, device)
         self.q1_target_net.load_state_dict(self.q1_net.state_dict())
         self.q2_target_net.load_state_dict(self.q2_net.state_dict())
 
         # Policy network
-        self.policy_net = PolicyNetwork(obs_dim, action_dim, model_dim, max_action, lr, device)
+        self.policy_net = PolicyNetwork(obs_dim, action_dim, self.model_dim, max_action, self.lr, device)
 
 
     def update_target_networks(self):
@@ -81,8 +74,6 @@ class SAC():
     def learn(self, episode_end=False):
         if self.memory.max_index < self.batch_size:
             return None
-        if episode_end and self.entropy_tuning == "fixed":
-            self.alpha = self.alpha * 0.9996
 
         obs, obs_next, actions, rewards, dones = self.memory.sample(self.batch_size)
 
@@ -116,13 +107,17 @@ class SAC():
         policy_loss.backward()
         self.policy_net.optimizer.step()
         
-        # Train alpha
+        # Update alpha
         if self.entropy_tuning=="adaptive":
             alpha_loss = -(self.log_alpha.exp() * (log_probs + self.target_entropy).detach()).mean()
             self.alpha_optimizer.zero_grad()
             alpha_loss.backward()
             self.alpha_optimizer.step()
             self.alpha = self.log_alpha.exp().item()
+
+        if episode_end and self.entropy_tuning == "fixed":
+            self.alpha = self.alpha * 0.9996
+
         self.update_target_networks()
 
         return q_1_loss.item(), q_2_loss.item(), policy_loss.item(), self.alpha

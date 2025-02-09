@@ -12,14 +12,21 @@ class RandomAgent():
         return np.random.uniform(-1,1,4)
 
 class DynamicEnvironment():
-    def __init__(self, only_self):
+    def __init__(self, args):
         self.counter = 0
-        self.only_self = only_self
+        self.only_self = args.only_self_play
+        self.save_folder = args.save_folder
+        self.win_reward = args.win_reward
+        self.lose_reward = args.lose_reward
+        self.draw_reward = args.draw_reward
+        self.puck_closeness_reward_multiplier = args.puck_closeness_reward_multiplier
+        self.puck_not_touched_yet_reward = args.puck_not_touched_yet_reward
+
         self.outcomes = {}
         self.opponents = {"weak": h_env.BasicOpponent(weak=True),
                           #"random": RandomAgent(),
                           "strong": h_env.BasicOpponent(weak=False),
-                          "self": SAC()}
+                          "self": SAC(args)}
         for name in self.opponents.keys():
             self.outcomes[name] = []
         
@@ -40,7 +47,7 @@ class DynamicEnvironment():
             self.current_player2_name = random.choice(list(self.opponents.keys()))
         
         if self.current_player2_name == "self":
-            filenames = os.listdir("checkpoints")
+            filenames = os.listdir(self.save_folder)
             file_dict = {fname: int(fname.split('_')[1].split('.')[0]) for fname in filenames}
             sorted_filenames = sorted(file_dict.keys(), key=lambda x: file_dict[x])
             episode_numbers = np.array([file_dict[fname] for fname in sorted_filenames])
@@ -50,7 +57,7 @@ class DynamicEnvironment():
                 weights = np.exp(episode_numbers / episode_numbers.max())  
                 weights /= weights.sum()  
                 random_filename = np.random.choice(sorted_filenames, p=weights)
-            self.opponents["self"].load(f"checkpoints/{random_filename}")
+            self.opponents["self"].load(f"{self.save_folder}/{random_filename}")
         
         return self.env.reset(one_starting=self.counter % 2 == 0)
     
@@ -72,23 +79,23 @@ class DynamicEnvironment():
         if d:
             match info["winner"]:
                 case 1:
-                    winner_r = 10
+                    winner_r = self.win_reward
                 case 0:
-                    winner_r = 0
+                    winner_r = self.draw_reward
                 case -1:
-                    winner_r = -10
+                    winner_r = self.lose_reward
 
         if info["reward_touch_puck"] and not self.already_touched_puck:
-            touch_r = 0.1 * self.env_step
+            touch_r = - self.puck_not_touched_yet_reward * self.env_step
             self.already_touched_puck = True
         elif not self.already_touched_puck:
-            touch_r = -0.1
+            touch_r = self.puck_not_touched_yet_reward
         else:
             touch_r = 0
 
-        closeness_r = info["reward_closeness_to_puck"]
+        closeness_r = self.puck_closeness_reward_multiplier * info["reward_closeness_to_puck"]
         
-        r = winner_r + 1 * touch_r + 5 * closeness_r
+        r = winner_r + touch_r +  closeness_r
 
         return r
 

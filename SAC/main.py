@@ -5,34 +5,54 @@ import datetime as datetime
 import os
 import torch
 from dynamic_env import DynamicEnvironment
+import argparse
 
 torch.cuda.empty_cache()
 torch.cuda.synchronize()
 os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
 
+parser = argparse.ArgumentParser(description="Arguments for SAC")
+parser.add_argument("--training_episodes", type=int, default=10000, help="Number of training episodes")
+parser.add_argument("--only_self_play", action="store_true", help="Train SAC only against itself")
+parser.add_argument("--render", action="store_true", help="Render the environment")
+parser.add_argument("--save_every", type=int, default=100, help="Save the model every n episodes")
+parser.add_argument("--batch_size", type=int, default=256, help="Batch size")
+parser.add_argument("--model_dim", type=int, default=256, help="Model dimension")
+parser.add_argument("--alpha", type=float, default=0.2, help="Alpha for entropy calculation")
+parser.add_argument("--lr", type=float, default=3e-4, help="Learning rate")
+parser.add_argument("--capacity", type=int, default=100_000, help="Capacity of the memory")
+parser.add_argument("--entropy_tuning", type=str, default=None, help="Entropy tuning method")
+parser.add_argument("--save_folder", type=str, default=None, help="Folder to save the models")
+parser.add_argument("--win_reward", type=float, default="10", help="Reward for winning")
+parser.add_argument("--lose_reward", type=float, default="-10", help="Reward for losing")
+parser.add_argument("--draw_reward", type=float, default="0", help="Reward for drawing")
+parser.add_argument("--puck_closeness_reward_multiplier", type=float, default="1", help="Multiplier for puck closeness")
+parser.add_argument("--puck_not_touched_yet_reward", type=float, default="-0.1", help="Reward for every step the puck is not YET touched")
+parser.add_argument("--tau", type=float, default=0.005, help="Tau for updating the target networks")
+parser.add_argument("--gamma", type=float, default=0.99, help="Discount factor")
+
+args = parser.parse_args()
+
+if args.save_folder is None:
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    args.save_folder = f"checkpoints/{timestamp}"
+os.makedirs(args.save_folder, exist_ok=True)
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-dyn_env = DynamicEnvironment(only_self=True)
+dyn_env = DynamicEnvironment(args)
 
 agent = SAC(
+    args,
 	obs_dim=dyn_env.env.observation_space.shape[0],
     action_dim=dyn_env.env.action_space.shape[0] // 2,
-    batch_size=256,
-    model_dim=256,
-    alpha=0.2,
-    lr=3e-4,
-    capacity=100_000,
-    entropy_tuning="fixed",
     device=device)  
 
 dyn_env.add_agent(agent)
-agent.save(f"checkpoints/sac_0.pth")
 
-number_of_training_episodes = 10000
 
-render = True
-save_every_n_episodes = 100
+agent.save(f"{args.save_folder}/sac_0.pth")
+
 
 
 rews = []
@@ -45,10 +65,10 @@ d = False
 episode = 0
 obs, info = dyn_env.reset()
 obs = torch.tensor(obs, dtype=torch.float32, device=device)
-while episode < number_of_training_episodes:
+while episode < args.training_episodes:
     if d:
         episode += 1
-        if episode % save_every_n_episodes == 0:
+        if episode % args.save_every == 0:
             agent.save(f"checkpoints/sac_{episode}.pth")
         obs, info = dyn_env.reset()
         obs = torch.tensor(obs, dtype=torch.float32, device=device)
@@ -67,7 +87,7 @@ while episode < number_of_training_episodes:
     
     obs_next, r, d, t, info = dyn_env.step(a)
     
-    if render:
+    if args.render:
         dyn_env.env.render(mode="human")
     obs_next = torch.tensor(obs_next, dtype=torch.float32, device=device)
 
