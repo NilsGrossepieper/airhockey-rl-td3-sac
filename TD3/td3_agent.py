@@ -2,8 +2,8 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import numpy as np
-from networks import Actor, Critic  # Use absolute imports
-from replay_buffer import ReplayBuffer  # Use absolute imports
+from networks import Actor, Critic
+from replay_buffer import ReplayBuffer
 import copy
 
 class TD3Agent:
@@ -44,8 +44,8 @@ class TD3Agent:
         """
         Selects an action using the Actor network.
         """
-        state = torch.FloatTensor(state).unsqueeze(0)  # Convert state to tensor
-        action = self.actor(state).cpu().data.numpy().flatten()  # Get action from Actor
+        state = torch.FloatTensor(state).unsqueeze(0)
+        action = self.actor(state).cpu().data.numpy().flatten()
 
         if explore:
             action += np.random.normal(0, noise_std, size=self.action_dim)
@@ -64,7 +64,7 @@ class TD3Agent:
         Train the TD3 agent using a batch of experiences from the replay buffer.
         """
         if self.replay_buffer.size() < batch_size:
-            return  # Don't train if we don't have enough samples
+            return  
 
         # Sample a batch of experiences from the replay buffer
         states, actions, rewards, next_states, dones = self.replay_buffer.sample(batch_size)
@@ -81,15 +81,16 @@ class TD3Agent:
         next_actions = (next_actions + noise).clamp(-self.max_action, self.max_action)
 
         # Compute target Q-values using both target critics
-        target_q1, target_q2 = self.critic1_target(next_states, next_actions)
-        target_q1, target_q2 = target_q1.squeeze(-1), target_q2.squeeze(-1)  # Fix dimensions
-        target_q = torch.min(target_q1, target_q2)  # Min to prevent overestimation
-        target_q = rewards.squeeze(-1) + (self.gamma * target_q * (1 - dones.squeeze(-1)))  # Bellman update
+        target_q1, _ = self.critic1_target(next_states, next_actions)
+        target_q2, _ = self.critic2_target(next_states, next_actions)
+        target_q1, target_q2 = target_q1.squeeze(-1), target_q2.squeeze(-1)
+        target_q = torch.min(target_q1, target_q2)
+        target_q = rewards.squeeze(-1) + (self.gamma * target_q * (1 - dones.squeeze(-1)))
 
 
         # Unpack the critic outputs correctly
-        current_q1, _ = self.critic1(states, actions)  # Take first value from critic1
-        current_q2, _ = self.critic2(states, actions)  # Take first value from critic2
+        current_q1, _ = self.critic1(states, actions) 
+        current_q2, _ = self.critic2(states, actions)  
 
         # Compute critic loss
         critic1_loss = nn.MSELoss()(current_q1, target_q.detach().unsqueeze(1))
@@ -107,8 +108,8 @@ class TD3Agent:
 
         # Delayed actor updates
         if self.train_step % policy_delay == 0:
-            q1_value, _ = self.critic1(states, self.actor(states))  # Extract Q1 value
-            actor_loss = -q1_value.mean()  # Maximize Q-value
+            q1_value, _ = self.critic1(states, self.actor(states))
+            actor_loss = -q1_value.mean()
             self.actor_optimizer.zero_grad()
             actor_loss.backward()
             self.actor_optimizer.step()
