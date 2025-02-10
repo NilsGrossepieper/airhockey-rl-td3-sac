@@ -1,20 +1,6 @@
 import torch
 import numpy as np
 
-def soft_update(target, source, tau):
-    """
-    Perform a soft update of the target network parameters.
-    
-    θ_target = τ * θ_source + (1 - τ) * θ_target
-
-    Parameters:
-    - target (nn.Module): Target network (actor/critic target)
-    - source (nn.Module): Source network (main actor/critic)
-    - tau (float): Soft update parameter (usually a small value like 0.005)
-    """
-    for target_param, source_param in zip(target.parameters(), source.parameters()):
-        target_param.data.copy_(tau * source_param.data + (1 - tau) * target_param.data)
-
 def save_model(actor, critic1, critic2, filename="td3_model.pth"):
     """
     Save model parameters.
