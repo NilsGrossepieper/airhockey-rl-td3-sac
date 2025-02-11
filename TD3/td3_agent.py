@@ -7,7 +7,7 @@ from replay_buffer import ReplayBuffer
 import copy
 
 class TD3Agent:
-    def __init__(self, state_dim, action_dim, max_action, lr=3e-4, gamma=0.99, tau=0.005, buffer_size=1e6):
+    def __init__(self, state_dim, action_dim, max_action, lr, gamma, tau, buffer_size):
         """
         Initialize TD3 agent with actor, critics, target networks, and replay buffer.
         """
@@ -59,7 +59,7 @@ class TD3Agent:
         for target_param, source_param in zip(target.parameters(), source.parameters()):
             target_param.data.copy_(self.tau * source_param.data + (1 - self.tau) * target_param.data)
             
-    def train(self, batch_size=100, policy_noise=0.2, noise_clip=0.5, policy_delay=2):
+    def train(self, batch_size, policy_noise, noise_clip, policy_delay):
         """
         Train the TD3 agent using a batch of experiences from the replay buffer.
         """
@@ -119,4 +119,5 @@ class TD3Agent:
             self.soft_update(self.critic1_target, self.critic1)
             self.soft_update(self.critic2_target, self.critic2)
 
-        self.train_step += 1  # Increase training step counter   
+        # Increase training step counter 
+        self.train_step += 1  
