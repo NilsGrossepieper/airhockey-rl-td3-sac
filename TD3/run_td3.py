@@ -14,10 +14,11 @@ render = True  # Set to False to disable rendering
 load_existing_model = False  # Set to True to load a saved model
 model_filename = ""  # Change this to match your saved model
 opponent = "weak"  # Choose between "weak", "strong", "td3"
+experiment_name = "basic"
 
 # Start training with user-defined settings
 train_td3(
-    num_episodes=1000,
+    num_episodes=10000,
     save_every=100,
     opponent=opponent,
     render=render,

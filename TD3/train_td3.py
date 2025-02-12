@@ -1,9 +1,9 @@
 import torch
 import numpy as np
 import gymnasium as gym
-import time
 import sys
 import os
+from datetime import datetime
 from td3_agent import TD3Agent  
 from replay_buffer import ReplayBuffer 
 from utils import save_model, load_model  
@@ -15,8 +15,7 @@ sys.path.append(os.path.abspath("../hockey_env"))
 from hockey.hockey_env import HockeyEnv, HockeyEnv_BasicOpponent, BasicOpponent
 
 # Hyperparameters
-ENV_NAME = "HockeyEnv"
-MAX_EPISODES = 1000
+MAX_EPISODES = 10000
 MAX_TIMESTEPS = 251
 BATCH_SIZE = 100
 GAMMA = 0.99
@@ -37,9 +36,7 @@ CLOSENESS_REWARD = 1
 TOUCH_REWARD = 1
 DIRECTION_REWARD = 1
 
-def train_td3(num_episodes=1000, save_every=100, opponent="weak", render=False, load_existing_model=False, model_filename=None,
-            winner_reward=WINNER_REWARD, draw_reward=DRAW_REWARD, loser_reward=LOSER_REWARD, closeness_reward=CLOSENESS_REWARD,
-            touch_reward=TOUCH_REWARD, direction_reward=DIRECTION_REWARD):
+def train_td3(num_episodes=10000, save_every=100, opponent="weak", render=False, load_existing_model=False, model_filename=None, experiment_name="basic"):
     """
     Train TD3 agent with options for rendering and loading an existing model.
     When training in self-play (opponent="td3"), the latest model is loaded as the opponent.
@@ -69,7 +66,7 @@ def train_td3(num_episodes=1000, save_every=100, opponent="weak", render=False, 
     env.keep_mode = False
 
     state, _ = env.reset()  # Get initial state
-    state_dim = len(state)  # Ensure state_dim matches actual state size
+    state_dim = state.shape[0]  # Ensure state_dim matches actual state size
     action_dim = env.action_space.shape[0]
     max_action = float(env.action_space.high[0])
 
@@ -79,14 +76,24 @@ def train_td3(num_episodes=1000, save_every=100, opponent="weak", render=False, 
     # If loading an existing model, manually enter filename
     if load_existing_model:
         if model_filename is None:
-            model_filename = input("Enter the name of the model file to load (e.g., TD3_Hockey_500.pth): ").strip()
-        
-        if os.path.exists(os.path.join(BUFFER_DIR, model_filename)):
-            load_model(agent.actor, agent.critic1, agent.critic2, filename=os.path.join(BUFFER_DIR, model_filename))
+            # Load latest model if no filename is provided
+            model_files = sorted([f for f in os.listdir(BUFFER_DIR) if f.startswith("TD3_Hockey_") and f.endswith(".pth")])
+            if model_files:
+                model_filename = model_files[-1]  # Select most recent model
+                print(f"No filename provided, using latest model: {model_filename}")
+            else:
+                print("No existing model found! Training from scratch.")
+                load_existing_model = False  # Force training from scratch if no model exists
+
+        # Load model if we still have a filename
+        if load_existing_model and os.path.exists(os.path.join(BUFFER_DIR, model_filename)):
+            load_model(agent.actor, agent.critic1, agent.critic2, agent.actor_target, agent.critic1_target, agent.critic2_target, filename=os.path.join(BUFFER_DIR, model_filename))
             print(f"Loaded model from {model_filename}")
         else:
-            print(f"Model file '{model_filename}' not found! Training from scratch...")
+            print(f"Model file '{model_filename}' not found! Training from scratch.")
+            load_existing_model = False  # Ensure everything starts from scratch
 
+    # Initialize replay buffer
     replay_buffer = agent.replay_buffer
     total_timesteps = 0
 
@@ -94,13 +101,13 @@ def train_td3(num_episodes=1000, save_every=100, opponent="weak", render=False, 
     opponent_agent = None
     if opponent == "td3":
         opponent_agent = TD3Agent(state_dim, action_dim, max_action, lr=LR, gamma=GAMMA, tau=TAU, buffer_size=BUFFER_SIZE)
-        
-        # Load the latest model if available
-        model_files = sorted([f for f in os.listdir(BUFFER_DIR) if f.startswith("TD3_Hockey_") and f.endswith(".pth")])
-        if model_files:
-            latest_model = os.path.join(BUFFER_DIR, model_files[-1])
-            load_model(opponent_agent.actor, opponent_agent.critic1, opponent_agent.critic2, filename=latest_model)
-            print(f"Loaded latest opponent model: {latest_model}")
+
+        if load_existing_model:
+            # Load the same model as the main agent
+            load_model(opponent_agent.actor, opponent_agent.critic1, opponent_agent.critic2, opponent_agent.actor_target, opponent_agent.critic1_target, opponent_agent.critic2_target, filename=os.path.join(BUFFER_DIR, model_filename))
+            print(f"Opponent model loaded from {model_filename}")
+        else:
+            print("Training opponent from scratch.")
 
     # Training loop
     for episode in range(1, num_episodes + 1):
@@ -127,20 +134,18 @@ def train_td3(num_episodes=1000, save_every=100, opponent="weak", render=False, 
             
             # Reward for end outcome
             if info["winner"] == 1:
-                reward += winner_reward
+                reward += WINNER_REWARD
             elif info["winner"] == 0:
-                reward -= draw_reward
+                reward -= DRAW_REWARD
             elif info["winner"] == -1:
-                reward -= loser_reward
+                reward -= LOSER_REWARD
                 
             # Reward for close to puck
-            reward += closeness_reward * info["reward_closeness_to_puck"]
-            
+            reward += CLOSENESS_REWARD * info["reward_closeness_to_puck"]            
             # Reward for touching puck
-            reward += touch_reward * info["reward_touch_puck"]
-            
+            reward += TOUCH_REWARD * info["reward_touch_puck"]            
             # Reward for moving puck in correct direction
-            reward += direction_reward * info["reward_puck_direction"]
+            reward += DIRECTION_REWARD * info["reward_puck_direction"]
             
             # Add to replay buffer
             replay_buffer.add(state, action, reward, next_state, done)            
@@ -179,13 +184,18 @@ def train_td3(num_episodes=1000, save_every=100, opponent="weak", render=False, 
 
         # Save model
         if episode % save_every == 0:
-            model_path = os.path.join(BUFFER_DIR, f"TD3_Hockey_{episode}.pth")
-            save_model(agent.actor, agent.critic1, agent.critic2, filename=model_path)
+            if not os.path.exists(BUFFER_DIR):
+                os.makedirs(BUFFER_DIR)
+                
+            current_date = datetime.now().strftime("%Y-%m-%d")
+            model_path = os.path.join(BUFFER_DIR, f"TD3_Hockey_{experiment_name}_{current_date}_{episode}.pth")
+            save_model(agent.actor, agent.critic1, agent.critic2, agent.actor_target, agent.critic1_target, agent.critic2_target, filename=model_path)
+
 
             # Update opponent if in self-play mode
             if opponent == "td3":
-                load_model(opponent_agent.actor, opponent_agent.critic1, opponent_agent.critic2, filename=model_path)
-                print(f"🔥 Updated opponent to latest model: {model_path}")
+                load_model(opponent_agent.actor, opponent_agent.critic1, opponent_agent.critic2, opponent_agent.actor_target, opponent_agent.critic1_target, opponent_agent.critic2_target, filename=model_path)
+                print(f"Updated opponent to latest model: {model_path}")
 
     # Close environment
     env.close()
