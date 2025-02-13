@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import numpy as np
+import wandb  # ✅ Import WandB
 from networks import Actor, Critic
 from replay_buffer import ReplayBuffer
 import copy
@@ -87,7 +88,6 @@ class TD3Agent:
         target_q = torch.min(target_q1, target_q2)
         target_q = rewards.squeeze(-1) + (self.gamma * target_q * (1 - dones.squeeze(-1)))
 
-
         # Unpack the critic outputs correctly
         current_q1, _ = self.critic1(states, actions) 
         current_q2, _ = self.critic2(states, actions)  
@@ -95,7 +95,6 @@ class TD3Agent:
         # Compute critic loss
         critic1_loss = nn.MSELoss()(current_q1, target_q.detach().unsqueeze(1))
         critic2_loss = nn.MSELoss()(current_q2, target_q.detach().unsqueeze(1))
-
 
         # Update critics
         self.critic1_optimizer.zero_grad()
@@ -113,11 +112,19 @@ class TD3Agent:
             self.actor_optimizer.zero_grad()
             actor_loss.backward()
             self.actor_optimizer.step()
-
-            # Soft update target networks
+            
+            # ✅ Soft update target networks
             self.soft_update(self.actor_target, self.actor)
             self.soft_update(self.critic1_target, self.critic1)
             self.soft_update(self.critic2_target, self.critic2)
+
+            # ✅ Log losses to WandB
+            wandb.log({
+                "Train Step": self.train_step,
+                "Actor Loss": actor_loss.item(),
+                "Critic1 Loss": critic1_loss.item(),
+                "Critic2 Loss": critic2_loss.item()
+            })
 
         # Increase training step counter 
         self.train_step += 1  

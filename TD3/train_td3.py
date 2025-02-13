@@ -17,7 +17,7 @@ from hockey.hockey_env import HockeyEnv, HockeyEnv_BasicOpponent, BasicOpponent
 # Hyperparameters
 MAX_EPISODES = 10000
 MAX_TIMESTEPS = 251
-BATCH_SIZE = 100
+BATCH_SIZE = 256
 GAMMA = 0.99
 TAU = 0.005
 POLICY_DELAY = 2
@@ -26,7 +26,7 @@ POLICY_NOISE = 0.2
 NOISE_CLIP = 0.5
 EVAL_FREQ = 10
 SAVE_FREQ = 100
-BUFFER_DIR = "./TD3"  # Directory where models are saved
+BUFFER_DIR = "./TD3_models" # Directory where models are saved
 BUFFER_SIZE = int(1e6)
 LR = 3e-4
 WINNER_REWARD = 0
@@ -111,6 +111,7 @@ def train_td3(num_episodes=10000, save_every=100, opponent="weak", render=False,
 
     # Training loop
     for episode in range(1, num_episodes + 1):
+        print(f"Episode {episode}/{num_episodes}")
         state, _ = env.reset()
         episode_reward = 0
 
