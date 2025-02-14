@@ -27,7 +27,7 @@ train_td3(
 train_td3_dynamic(
     num_episodes=5,
     save_every=1,
-    render=False,
+    render=True,
     load_existing_model=False,
     experiment_name="basic"
 )

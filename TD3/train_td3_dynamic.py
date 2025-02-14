@@ -63,11 +63,11 @@ def train_td3_dynamic(num_episodes=10000, save_every=100, render=False, load_exi
         )
 
     # Initialize environment (only for getting dimensions)
-    env = HockeyEnv()  # Initialize default environment
+    env = HockeyEnv(keep_mode=False)  # Initialize default environment
     env.keep_mode = False  # Ensure correct feature count before reset
     state, _ = env.reset()  # Get initial state
     state_dim = state.shape[0]  # Get correct feature size dynamically
-    action_dim = env.action_space.shape[0]
+    action_dim = env.action_space.shape[0] // 2
     max_action = float(env.action_space.high[0])
 
     # Initialize TD3 Agent
@@ -106,6 +106,8 @@ def train_td3_dynamic(num_episodes=10000, save_every=100, render=False, load_exi
             
         else:
             raise ValueError(f"Invalid opponent type: {opponent_name}")  # Catch errors early
+
+        env.reset(one_starting=episode % 2 == 0)  # Ensure alternating starts
 
         # Explicitly Set keep_mode=False Before Resetting the Environment
         env.keep_mode = False  
