@@ -25,9 +25,10 @@ train_td3(
 
 # Start dynamic training with user-defined settings
 train_td3_dynamic(
-    num_episodes=5,
-    save_every=1,
+    num_episodes=20,
+    save_every=10,
     render=True,
-    load_existing_model=False,
-    experiment_name="basic"
+    load_existing_agent=None,
+    experiment_name="basic",
+    seed=42
 )

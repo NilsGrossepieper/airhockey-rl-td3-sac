@@ -2,22 +2,28 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import numpy as np
-import wandb  # ✅ Import WandB
+import wandb
+import random
 from networks import Actor, Critic
 from replay_buffer import ReplayBuffer
 import copy
 
 class TD3Agent:
-    def __init__(self, state_dim, action_dim, max_action, lr, gamma, tau, buffer_size):
+    def __init__(self, state_dim, action_dim, max_action, lr, gamma, tau, buffer_size, explore_noise, seed=None):
         """
         Initialize TD3 agent with actor, critics, target networks, and replay buffer.
         """
-        self.state_dim = state_dim
-        self.action_dim = action_dim
-        self.max_action = max_action
-        self.gamma = gamma
+        
+        if seed is not None:
+            self.set_random_seed(seed)  # Apply the seed
+        
+        self.state_dim = state_dim # Number of state variables
+        self.action_dim = action_dim # Number of actions
+        self.max_action = max_action # Maximum action value
+        self.gamma = gamma # Discount factor
         self.tau = tau  # Soft update rate
         self.train_step = 0  # Tracks training steps
+        self.explore_noise = explore_noise # Noise level for exploration vs. exploitation
 
         # Actor and Critic Networks
         self.actor = Actor(state_dim, action_dim, max_action)
@@ -41,7 +47,18 @@ class TD3Agent:
         self.critic1_target.eval()
         self.critic2_target.eval()
         
-    def select_action(self, state, explore=True, noise_std=0.1):
+    def set_random_seed(self, seed):
+        """
+        Set random seed for reproducibility.
+        """
+        random.seed(seed)
+        np.random.seed(seed)
+        torch.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+        
+    def select_action(self, state, explore=True):
         """
         Selects an action using the Actor network.
         """
@@ -49,7 +66,7 @@ class TD3Agent:
         action = self.actor(state).cpu().data.numpy().flatten()
 
         if explore:
-            action += np.random.normal(0, noise_std, size=self.action_dim)
+            action += np.random.normal(0, self.explore_noise, size=self.action_dim)  # ✅ Uses self.explore_noise
 
         return np.clip(action, -self.max_action, self.max_action)
 
@@ -82,15 +99,14 @@ class TD3Agent:
         next_actions = (next_actions + noise).clamp(-self.max_action, self.max_action)
 
         # Compute target Q-values using both target critics
-        target_q1, _ = self.critic1_target(next_states, next_actions)
-        target_q2, _ = self.critic2_target(next_states, next_actions)
-        target_q1, target_q2 = target_q1.squeeze(-1), target_q2.squeeze(-1)
+        target_q1 = self.critic1_target(next_states, next_actions)
+        target_q2 = self.critic2_target(next_states, next_actions)
         target_q = torch.min(target_q1, target_q2)
-        target_q = rewards.squeeze(-1) + (self.gamma * target_q * (1 - dones.squeeze(-1)))
+        target_q = rewards.view(-1, 1) + (self.gamma * target_q.detach() * (1 - dones.view(-1, 1)))
 
         # Unpack the critic outputs correctly
-        current_q1, _ = self.critic1(states, actions) 
-        current_q2, _ = self.critic2(states, actions)  
+        current_q1 = self.critic1(states, actions) 
+        current_q2 = self.critic2(states, actions)  
 
         # Compute critic loss
         critic1_loss = nn.MSELoss()(current_q1, target_q.detach().unsqueeze(1))
@@ -107,24 +123,32 @@ class TD3Agent:
 
         # Delayed actor updates
         if self.train_step % policy_delay == 0:
-            q1_value, _ = self.critic1(states, self.actor(states))
+            q1_value = self.critic1(states, self.actor(states))
             actor_loss = -q1_value.mean()
             self.actor_optimizer.zero_grad()
             actor_loss.backward()
             self.actor_optimizer.step()
             
-            # ✅ Soft update target networks
+            # Soft update target networks
             self.soft_update(self.actor_target, self.actor)
             self.soft_update(self.critic1_target, self.critic1)
             self.soft_update(self.critic2_target, self.critic2)
 
-            # ✅ Log losses to WandB
-            wandb.log({
-                "Train Step": self.train_step,
-                "Actor Loss": actor_loss.item(),
-                "Critic1 Loss": critic1_loss.item(),
-                "Critic2 Loss": critic2_loss.item()
-            })
+            # Log training information
+            if self.train_step % 10 == 0:  # Log every 10 steps
+                avg_q1 = current_q1.mean().item()
+                avg_q2 = current_q2.mean().item()
+
+                wandb.log({
+                    "Train Step": self.train_step,
+                    "Actor Loss": actor_loss.item(),
+                    "Critic1 Loss": critic1_loss.item(),
+                    "Critic2 Loss": critic2_loss.item(),
+                    "Average Q1": avg_q1,  # Tracks Q-value estimates
+                    "Average Q2": avg_q2,
+                    "Exploration Noise": self.explore_noise  # Tracks noise level for exploration vs. exploitation
+                })
+
 
         # Increase training step counter 
         self.train_step += 1  

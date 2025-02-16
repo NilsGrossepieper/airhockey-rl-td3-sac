@@ -1,18 +1,18 @@
 {
   "os":  "Windows-11-10.0.22631-SP0",
   "python":  "CPython 3.12.7",
-  "startedAt":  "2025-02-14T11:16:03.795277Z",
-  "program":  "c:\\Users\\gross\\Documents\\rl-hockey-homework\\TD3\\run_td3.py",
+  "startedAt":  "2025-02-16T19:25:51.117983Z",
+  "program":  "C:\\Users\\gross\\Documents\\rl-hockey-homework\\TD3\\run_td3.py",
   "codePath":  "TD3\\run_td3.py",
   "git":  {
     "remote":  "https://github.com/Matyi00/rl-hockey-homework.git",
-    "commit":  "7030c6b3df6798bf064d1d5fff5eb401615500e6"
+    "commit":  "5de530bae62a2ad93dc91b63d3687e182264a388"
   },
   "email":  "nils.grossepieper@student.uni-tuebingen.de",
-  "root":  "C:\\Users\\gross\\Documents\\rl-hockey-homework",
+  "root":  "C:\\Users\\gross\\Documents\\rl-hockey-homework\\TD3",
   "host":  "Dell_XPS15_Nils",
-  "executable":  "c:\\Users\\gross\\miniconda3\\envs\\rl-hockey\\python.exe",
-  "codePathLocal":  "TD3\\run_td3.py",
+  "executable":  "C:\\Users\\gross\\miniconda3\\envs\\rl-hockey\\python.exe",
+  "codePathLocal":  "run_td3.py",
   "cpu_count":  6,
   "cpu_count_logical":  12,
   "gpu":  "NVIDIA GeForce GTX 1050 Ti with Max-Q Design",
@@ -20,7 +20,7 @@
   "disk":  {
     "/":  {
       "total":  "237383970816",
-      "used":  "220720914432"
+      "used":  "220325007360"
     }
   },
   "memory":  {
