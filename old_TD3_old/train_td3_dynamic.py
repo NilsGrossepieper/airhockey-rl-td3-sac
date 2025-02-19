@@ -17,15 +17,19 @@ sys.path.append(os.path.abspath("../hockey_env"))
 # Import Hockey Environment Correctly
 from hockey.hockey_env import HockeyEnv, HockeyEnv_BasicOpponent, BasicOpponent
 
+# Device selection: Use GPU if available
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# print(f"Using device: {device}")
+
 # Hyperparameters
 MAX_EPISODES = 10000
 MAX_TIMESTEPS = 251
 BATCH_SIZE = 256
 GAMMA = 0.99
-TAU = 0.005
+TAU = 0.01
 POLICY_DELAY = 2
 EXPLORE_NOISE = 0.1
-POLICY_NOISE = 0.2
+POLICY_NOISE = 0.15
 NOISE_CLIP = 0.5
 EVAL_FREQ = 10
 SAVE_FREQ = 100
@@ -33,12 +37,12 @@ BUFFER_DIR = "./TD3_models"
 BUFFER_SIZE = int(1e6)
 LR = 3e-4
 SEED = None
-WINNER_REWARD = 0
+WINNER_REWARD = 10
 DRAW_REWARD = 0
 LOSER_REWARD = 0
 CLOSENESS_REWARD = 0
-TOUCH_REWARD = 0
-DIRECTION_REWARD = 0
+TOUCH_REWARD = 1
+DIRECTION_REWARD = 1
 PUCK_NOT_TOUCHED_YET_PENALTY = 0
 
 def train_td3_dynamic(num_episodes=10000, save_every=100, render=False, load_existing_agent=None, experiment_name="basic", seed=SEED):
@@ -82,23 +86,24 @@ def train_td3_dynamic(num_episodes=10000, save_every=100, render=False, load_exi
     max_action = float(env.action_space.high[0])
 
     # Initialize TD3 Agent
-    agent = TD3Agent(state_dim, action_dim, max_action, lr=LR, gamma=GAMMA, tau=TAU, buffer_size=BUFFER_SIZE, explore_noise=EXPLORE_NOISE, seed=seed)
+    agent = TD3Agent(state_dim, action_dim, max_action, lr=LR, gamma=GAMMA, tau=TAU, buffer_size=BUFFER_SIZE, explore_noise=EXPLORE_NOISE, seed=seed, device=device)
 
     # Load existing agent if specified
     if load_existing_agent:
         model_path = os.path.join(BUFFER_DIR, load_existing_agent)
         if os.path.exists(model_path):
             print(f"Loading existing agent from {model_path}")
-            load_model(agent.actor, agent.critic1, agent.critic2, agent.actor_target, agent.critic1_target, agent.critic2_target, filename=model_path)
+            load_model(agent.actor, agent.critic, agent.actor_target, agent.critic_target, filename=model_path)
         else:
             print(f"Warning: Specified model {model_path} not found. Training from scratch.")
 
     # Opponent selection options
     opponents = {
-        "weak": None,
-        "strong": None,
-        "td3": None
+        "weak": "basic_weak",
+        "strong": "basic_strong",
+        "td3": "td3_self_play"
     }
+
 
     # Initialize training loop variables
     replay_buffer = agent.replay_buffer
@@ -108,8 +113,15 @@ def train_td3_dynamic(num_episodes=10000, save_every=100, render=False, load_exi
     # Training Loop
     for episode in range(1, num_episodes + 1):
         
-        # Select opponent
-        opponent_name = random.choice(list(opponents.keys()))
+        if episode % 3 == 0:
+            opponent_name = "td3"  # Every 3rd episode, use self-play
+        elif episode % 2 == 0:
+            opponent_name = "weak"  # Every even non-TD3 episode uses weak
+        else:
+            opponent_name = "strong"  # Every odd non-TD3 episode uses strong
+
+
+        #opponent_name = random.choice(list(opponents.keys()))
         print(f"Episode {episode}/{num_episodes} | Selected Opponent: {opponent_name}")
 
         # Initialize the environment with the selected opponent
@@ -130,6 +142,7 @@ def train_td3_dynamic(num_episodes=10000, save_every=100, render=False, load_exi
         # Explicitly Set keep_mode=False Before Resetting the Environment
         env.keep_mode = True  
         state, _ = env.reset()
+        state = np.array(state, dtype=np.float32)  # Ensure it's a CPU-based NumPy array
 
         # Handle Self-Play Model Selection with Weighted Probability
         if opponent_name == "td3":
@@ -154,17 +167,23 @@ def train_td3_dynamic(num_episodes=10000, save_every=100, render=False, load_exi
                 model_filename = np.random.choice(sorted_filenames, p=weights)  # Weighted selection
                 print(f"Using self-play opponent: {model_filename}")
                 
-                opponents["td3"] = TD3Agent(state_dim, action_dim, max_action, lr=LR, gamma=GAMMA, tau=TAU, buffer_size=BUFFER_SIZE, explore_noise=EXPLORE_NOISE, seed=seed)
-                load_model(opponents["td3"].actor, opponents["td3"].critic1, opponents["td3"].critic2,
-                            opponents["td3"].actor_target, opponents["td3"].critic1_target, opponents["td3"].critic2_target,
+                opponents["td3"] = TD3Agent(state_dim, action_dim, max_action, lr=LR, gamma=GAMMA, tau=TAU, buffer_size=BUFFER_SIZE, explore_noise=EXPLORE_NOISE, seed=seed, device=device)
+                load_model(opponents["td3"].actor, opponents["td3"].critic, opponents["td3"].actor_target, opponents["td3"].critic_target,
                             filename=os.path.join(BUFFER_DIR, model_filename))
+
+                
             else:
                 print("No previous self-play models found. Training opponent from scratch.")
-                opponents["td3"] = TD3Agent(state_dim, action_dim, max_action, lr=LR, gamma=GAMMA, tau=TAU, buffer_size=BUFFER_SIZE, explore_noise=EXPLORE_NOISE, seed=seed)
+                opponents["td3"] = TD3Agent(state_dim, action_dim, max_action, lr=LR, gamma=GAMMA, tau=TAU, buffer_size=BUFFER_SIZE, explore_noise=EXPLORE_NOISE, seed=seed, device=device)
 
         # Ensure alternating starts
         env.reset(one_starting=episode % 2 == 0)
+        state = np.array(state, dtype=np.float32)  # Ensure it's a CPU-based NumPy array
         episode_reward = 0
+        episode_result_reward = 0
+        episode_reward_closeness = 0
+        episode_reward_touch = 0
+        episode_reward_direction = 0
 
         for t in range(MAX_TIMESTEPS):
             total_timesteps += 1
@@ -173,16 +192,37 @@ def train_td3_dynamic(num_episodes=10000, save_every=100, render=False, load_exi
                 env.render(mode="human")
 
             # Select action
-            action = agent.select_action(state, explore=True)
+            state_tensor = torch.FloatTensor(state).to(device)
+            action = agent.select_action(state_tensor, explore=True)
+            
+            # Convert action to NumPy array
+            if isinstance(action, torch.Tensor):  
+                action = action.cpu().numpy()  # Move back to CPU only if it's a PyTorch tensor
+
+            #print(f"Action before scaling: {action}")
 
             # Get opponent's action
             if opponent_name == "td3":
                 opponent_action = opponents["td3"].select_action(np.array(state), explore=True)
+                # Only move to CPU if it's a PyTorch tensor
+                if isinstance(opponent_action, torch.Tensor):  
+                    opponent_action = opponent_action.cpu().numpy()
+                
             else:
-                opponent_action = env.opponent.act(env.obs_agent_two())
+                opponent_action = np.array(env.opponent.act(env.obs_agent_two()), dtype=np.float32)
+
+            #print(f"Agent action: {action} | Opponent action: {opponent_action}")
+            
+            #print(f"Critic1 Loss: {agent.critic1_loss:.4f} | Critic2 Loss: {agent.critic2_loss:.4f} | Actor Loss: {agent.actor_loss:.4f}")
+            
+            #print("Action Space:", env.action_space)
+
 
             # Step environment
             next_state, reward, done, _, info = env.step(np.hstack([action, opponent_action]))
+
+            # Ensure next_state is a NumPy array for environment compatibility
+            next_state = np.array(next_state, dtype=np.float32)
 
             # Reward adjustments
             if info["winner"] == 1:
@@ -195,13 +235,16 @@ def train_td3_dynamic(num_episodes=10000, save_every=100, render=False, load_exi
             reward += CLOSENESS_REWARD * info["reward_closeness_to_puck"] # 0
             reward += TOUCH_REWARD * info["reward_touch_puck"] # 0
             reward += DIRECTION_REWARD * info["reward_puck_direction"] # 0
-            
-            # Add penalty for not touching the puck
-            if not info["reward_touch_puck"]:
-                reward -= min(PUCK_NOT_TOUCHED_YET_PENALTY * t, 10)  # Cap penalty at 10
+                
+            reward = reward / 10.0  # Scale rewards down to prevent instability    
+                
+            episode_reward_closeness += info["reward_closeness_to_puck"]
+            episode_reward_closeness += CLOSENESS_REWARD * info["reward_closeness_to_puck"]
+            episode_reward_touch += TOUCH_REWARD * info["reward_touch_puck"]
+            episode_reward_direction += DIRECTION_REWARD * info["reward_puck_direction"]
 
             # Add to replay buffer
-            replay_buffer.add(state, action, reward, next_state, done)
+            replay_buffer.add(state, action, float(reward), next_state, float(done))
 
             state = next_state
             episode_reward += reward
@@ -231,20 +274,46 @@ def train_td3_dynamic(num_episodes=10000, save_every=100, render=False, load_exi
             win_loss_component = LOSER_REWARD  # Add loss penalty
 
         episode_length = t + 1  # Track episode length
+        
+        if done:  # Only apply at the end of the episode
+            if info["winner"] == 1:
+                episode_result_reward += 10 + WINNER_REWARD
+            elif info["winner"] == 0:
+                episode_result_reward += DRAW_REWARD
+            elif info["winner"] == -1:
+                episode_result_reward += -10 + LOSER_REWARD
+                
+        # Compute cumulative win, loss, and draw rates
+        cumulative_wins = sum([1 for outcome in win_loss_history[opponent_name] if outcome == 1])
+        cumulative_losses = sum([1 for outcome in win_loss_history[opponent_name] if outcome == -1])
+        cumulative_draws = sum([1 for outcome in win_loss_history[opponent_name] if outcome == 0])
+        total_games = len(win_loss_history[opponent_name])
+        
+        cumulative_win_rate = cumulative_wins / max(1, total_games)
+        cumulative_loss_rate = cumulative_losses / max(1, total_games)
+        cumulative_draw_rate = cumulative_draws / max(1, total_games)
+        
+        # Ensure info dictionary is handled on CPU (for logging purposes)
+        # reward_touch_puck = float(info["reward_touch_puck"])  # Ensure float conversion
+        # reward_closeness = float(info["reward_closeness_to_puck"])
+        # reward_direction = float(info["reward_puck_direction"])
 
         # Log everything to WandB
         wandb.log({
             f"win_rate_{opponent_name}": win_rates[opponent_name],
             f"loss_rate_{opponent_name}": loss_rates[opponent_name],
             f"draw_rate_{opponent_name}": draw_rates[opponent_name],
+            f"cumulative_win_rate_{opponent_name}": cumulative_win_rate,
+            f"cumulative_loss_rate_{opponent_name}": cumulative_loss_rate,
+            f"cumulative_draw_rate_{opponent_name}": cumulative_draw_rate,
             "Episode": episode,
             "Total Timesteps": total_timesteps,
             "Episode Reward": episode_reward,
             "Episode Length": episode_length,  # Tracks how long each game lasts
-            "Win/Loss Reward": win_loss_component,
-            "Puck Touch Reward": TOUCH_REWARD * info["reward_touch_puck"],
-            "Puck Closeness Reward": CLOSENESS_REWARD * info["reward_closeness_to_puck"],
-            "Puck Direction Reward": DIRECTION_REWARD * info["reward_puck_direction"]
+            "Episode Result Reward": episode_result_reward,
+            "Episode Closeness Reward": episode_reward_closeness,
+            "Episode Touch Reward": episode_reward_touch,
+            "Episode Direction Reward": episode_reward_direction,
         })
 
         # Save model
@@ -254,10 +323,15 @@ def train_td3_dynamic(num_episodes=10000, save_every=100, render=False, load_exi
 
             # Save and Log Model Checkpoint
             model_path = os.path.join(BUFFER_DIR, f"TD3_Hockey_{experiment_name}_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}_{episode}.pth")
-            save_model(agent.actor, agent.critic1, agent.critic2, agent.actor_target, agent.critic1_target, agent.critic2_target, filename=model_path)
+            save_model(agent.actor, agent.critic, agent.actor_target, agent.critic_target, filename=model_path)
 
             # Log model save event in WandB
             wandb.log({"Saved Model": model_path})
 
+        print("Total Episode Reward",episode_reward)
+        print("End Results Reward", episode_result_reward)
+        print("End Closeness Reward", episode_reward_closeness)
+        print("End Touch Reward", episode_reward_touch)
+        print("End Direction Reward", episode_reward_direction)
     env.close()
 wandb.finish()
