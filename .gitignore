@@ -170,3 +170,7 @@ cython_debug/
 # PyPI configuration file
 .pypirc
 .pyc
+sac_hockey.zip
+checkpoints/
+from_online/
+wandb/
