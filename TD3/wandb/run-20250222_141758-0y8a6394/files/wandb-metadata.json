@@ -1,0 +1,46 @@
+{
+  "os":  "Windows-11-10.0.22631-SP0",
+  "python":  "CPython 3.12.7",
+  "startedAt":  "2025-02-22T13:17:58.793539Z",
+  "args":  [
+    "--training_episodes",
+    "100"
+  ],
+  "program":  "C:\\Users\\gross\\Documents\\rl-hockey-homework\\TD3\\main.py",
+  "codePath":  "TD3\\main.py",
+  "git":  {
+    "remote":  "https://github.com/Matyi00/rl-hockey-homework.git",
+    "commit":  "a0c02adfeb0b9ff15534c9fbf4d2230ef939cd93"
+  },
+  "email":  "nils.grossepieper@student.uni-tuebingen.de",
+  "root":  "C:\\Users\\gross\\Documents\\rl-hockey-homework\\TD3",
+  "host":  "Dell_XPS15_Nils",
+  "executable":  "C:\\Users\\gross\\miniconda3\\envs\\rl-hockey\\python.exe",
+  "codePathLocal":  "main.py",
+  "cpu_count":  6,
+  "cpu_count_logical":  12,
+  "gpu":  "NVIDIA GeForce GTX 1050 Ti with Max-Q Design",
+  "gpu_count":  1,
+  "disk":  {
+    "/":  {
+      "total":  "237383970816",
+      "used":  "223674548224"
+    }
+  },
+  "memory":  {
+    "total":  "8313118720"
+  },
+  "cpu":  {
+    "count":  6,
+    "countLogical":  12
+  },
+  "gpu_nvidia":  [
+    {
+      "name":  "NVIDIA GeForce GTX 1050 Ti with Max-Q Design",
+      "memoryTotal":  "4294967296",
+      "cudaCores":  768,
+      "architecture":  "Pascal"
+    }
+  ],
+  "cudaVersion":  "12.0"
+}
