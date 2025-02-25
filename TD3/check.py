@@ -57,31 +57,28 @@ parser.add_argument("--hard_update_frequency", type=int, default=10000,
 args = parser.parse_args()
 args.render = True
 
-
+# Set the device
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 env = h_env.HockeyEnv()  
 
-
+# Initialize the agent
 agent = TD3(
     args,
 	obs_dim=env.observation_space.shape[0],
     action_dim= env.action_space.shape[0] // 2,
     device=device) 
 
-agent2 = TD3(
-    args,
-	obs_dim=env.observation_space.shape[0],
-    action_dim= env.action_space.shape[0] // 2,
-    device=device) 
+# Initialize the opponent
+agent2 = h_env.BasicOpponent(weak=True)
 
-#agent.load("checkpoints/2025-02-18_23-51-27/sac_10000.pth")
-agent.load("checkpoints/td3_10000.pth") #this was good
-# best : 2025-02-18_23-51-27
-agent2.load("checkpoints/td3_10000_delay_1.pth")
-#agent2.load("checkpoints/self_play_4/sac_3000.pth")
+# Load the model
+agent.load("td3/checkpoints/td3_10000.pth") #this was good
+
+#agent2.load("td3/checkpoints/td3_10000_delay_1.pth")
+#agent2.load("td3/checkpoints/self_play_4/sac_3000.pth")
 outcomes = {"win": 0, "lose": 0, "draw": 0}
 
-
+# Play against the opponent
 done = True
 info = {"winner":-2}
 while True:
@@ -95,8 +92,9 @@ while True:
         print(outcomes)
         obs, info = env.reset()
     
+    # Get the action from the agent
     action = agent.get_action(obs, episode_count=10000)
     obs_agent2 = env.obs_agent_two()
-    a_enemy = agent2.get_action(obs, episode_count=10000)
+    a_enemy = agent2.act(obs_agent2)
     obs, reward, done, t, info = env.step(np.hstack([action,a_enemy]))
     env.render()
