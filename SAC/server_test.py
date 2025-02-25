@@ -7,7 +7,18 @@ import sys
 import argparse
 sys.path.append(os.path.abspath('./hockey_env/hockey'))
 import hockey_env as h_env
+import pickle
 import time
+
+FPS = 50
+SCALE = 60.0  # affects how fast-paced the game is, forces should be adjusted as well (Don't touch)
+
+VIEWPORT_W = 600
+VIEWPORT_H = 480
+W = VIEWPORT_W / SCALE
+H = VIEWPORT_H / SCALE
+CENTER_X = W / 2
+CENTER_Y = H / 2
 
 parser = argparse.ArgumentParser(description="Arguments for SAC")
 parser.add_argument("--training_episodes", type=int, default=10000, help="Number of training episodes")
@@ -42,45 +53,75 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 env = h_env.HockeyEnv()  
 
 
+with open(r"C:\Users\pmaty\Downloads\d1b72add-eba8-452e-b3b3-ca748d595f62.pkl", "rb") as f:
+    data = pickle.load(f)
+
+
+
+obs = data["observations_round_0"]
+actions = data["actions_round_0"]
 agent = SAC(
     args,
 	obs_dim=env.observation_space.shape[0],
     action_dim= env.action_space.shape[0] // 2,
     device=device) 
+agent.load("checkpoints/non_self_play_10/sac_4160.pth")
 
 agent2 = SAC(
     args,
 	obs_dim=env.observation_space.shape[0],
     action_dim= env.action_space.shape[0] // 2,
     device=device) 
+agent2.load("checkpoints/non_self_play_10/sac_24960.pth")
+second = True
+def print_info(state,action):
+    return
+    print(state)
+    print(env.obs_agent_two())
+    print("actions: done", action)
+    print("agent 1 obs 1:", agent.act(state))
+    print("agent 1 obs 2:", agent.act(env.obs_agent_two()))
+    print("\n")
+    if second:
+        print("agent 2 obs 1:", agent2.act(state))
+        print("agent 2 obs 2:", agent2.act(env.obs_agent_two()))
 
-#agent.load("checkpoints/self_play_11/sac_13800.pth")
-#agent.load("checkpoints/2025-02-18_23-51-27/sac_10000.pth")
-#agent.load("checkpoints/2025-02-19_19-02-08/sac_10000.pth") #this was good
-# best : 2025-02-18_23-51-27
-#agent.load("checkpoints/non_self_play_10/sac_47400.pth")
-agent.load("checkpoints/non_self_play_10/sac_48580.pth")
-agent2.load("checkpoints/non_self_play_10/sac_48580.pth")
-outcomes = {"win": 0, "lose": 0, "draw": 0}
+    print("\n\n")
 
+def set_obs(state):
+    env.player1.position = (state[[0, 1]] + [CENTER_X, CENTER_Y]).tolist()
+    env.player1.angle = state[2]
+    env.player1.linearVelocity = [state[3], state[4]]
+    env.player1.angularVelocity = state[5]
+    env.player2.position = (state[[6, 7]] + [CENTER_X, CENTER_Y]).tolist()
+    env.player2.angle = state[8]
+    env.player2.linearVelocity = [state[9], state[10]]
+    env.player2.angularVelocity = state[11]
+    env.puck.position = (state[[12, 13]] + [CENTER_X, CENTER_Y]).tolist()
+    env.puck.linearVelocity = [state[14], state[15]]
 
-done = True
-info = {"winner":-2}
-while True:
-    if done:
-        if info["winner"] == 0:
-            outcomes["draw"] += 1
-        elif info["winner"] == 1:
-            outcomes["win"] += 1
-        elif info["winner"] == -1:
-            outcomes["lose"] += 1
-        print(outcomes)
-        obs, info = env.reset()
-    
-    action = agent.act(obs)
-    obs_agent2 = env.obs_agent_two()
-    a_enemy = agent2.act(obs_agent2)
-    obs, reward, done, t, info = env.step(np.hstack([action,a_enemy]))
-    if args.render:
+set_obs(data[f"observations_round_0"][0])
+print_info(data[f"observations_round_0"][0], data[f"actions_round_0"][0])
+set_obs(data[f"observations_round_1"][0])
+print_info(data[f"observations_round_1"][0], data[f"actions_round_1"][0])
+set_obs(data[f"observations_round_2"][0])
+print_info(data[f"observations_round_2"][0], data[f"actions_round_2"][0])
+set_obs(data[f"observations_round_3"][0])
+print_info(data[f"observations_round_3"][0], data[f"actions_round_3"][0])
+
+for i in range(4):
+    for x in range(len(data[f"observations_round_{i}"]) - 1):
+        state = data[f"observations_round_{i}"][x]
+        action = data[f"actions_round_{i}"][x]
+        set_obs(state)
         env.render()
-        #time.sleep(0.20)
+        agent_action = agent.act(state)
+        #obs, reward, done, t, info = env.step(action)
+        #if (x < 30):
+        #    print(obs)
+        #    print(data[f"observations_round_{i}"][x + 1])
+        #    print()
+        print_info(state, action)
+        time.sleep(0.02)
+    print("end of round", i)
+    pass
