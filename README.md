@@ -43,13 +43,12 @@ python TD3/main.py
 python/SAC/main.py
 ```
 
-**Environment demo:** Open example_run.ipynb and run the cell to render a short random-action rollout.
+**Environment demo:** Open **example_run.ipynb** and run the cell to render a short random-action rollout.
 
 ---
 
 ## 📂 details
-Slides with gameplay clips & results: docs/rl-hockey-presentation.pptx
-Source video for GIF (optional): docs/td3_demo.mp4
+Presentation of our experiments can be found at: **docs/rl-hockey-presentation.pptx**
 
 ---
 
