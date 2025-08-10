@@ -1,17 +1,54 @@
-﻿# AirHockey RL  TD3 & SAC
+# AirHockey RL — TD3 & SAC
 
-This repo shows two reinforcement-learning agents for AirHockey: **TD3** and **SAC**.
-We compare them and test the effect of **policy noise** and **policy delay**.
+Train two reinforcement-learning agents—**TD3** and **SAC**—to play a continuous-control **AirHockey** environment.  
+The repo includes a simple environment demo, training scripts for both agents, and slides with short clips and plots.
 
-## How to run
-- TD3:  python TD3/train.py --env HockeyEnv-v0 --steps 500000 --seed 0 --policy-noise 0.2 --policy-delay 2
-- SAC:  python SAC/train.py  --env HockeyEnv-v0 --steps 500000 --seed 0
+## What it does
+- Trains TD3 and SAC agents on the same AirHockey task
+- Compares behaviors with simple tweaks (e.g., policy noise, policy delay)
+- Optionally logs runs to Weights & Biases
 
-## What to look at
-- Slides (with short clips): docs/rl-hockey-presentation.pptx
+## Quick start
+Requirements: Python 3.10+.
 
-## Repo layout
-TD3/  SAC/  hockey_env/  docs/  requirements.txt
+```bash
+pip install -r requirements.txt
+```
+
+### Train TD3
+```bash
+python TD3/main.py
+```
+
+### Train SAC
+```bash
+python SAC/main.py
+```
+
+> Tip: add `--help` to either command to see available options.
+
+## Environment demo
+Open **`example_run.ipynb`** and run the cells to see the environment stepping with random actions and rendering.
+
+## Results & media
+- Slides with short gameplay clips and plots: **`docs/rl-hockey-presentation.pptx`**  
+- You can add PNGs/GIFs to `docs/` and reference them here, e.g.:
+  ```md
+  ![Learning curves](docs/learning_curves.png)
+  ```
+
+## Repository structure
+```
+TD3/                    # TD3 implementation and training entry (main.py)
+SAC/                    # SAC implementation and training entry (main.py)
+hockey_env/             # environment helpers/wrappers
+dynamic_env.py          # environment orchestration, evaluation, logging hooks
+example_run.ipynb       # quick demo notebook
+docs/                   # slides, plots, gifs
+requirements.txt
+LICENSE
+```
 
 ## License
 MIT
+
