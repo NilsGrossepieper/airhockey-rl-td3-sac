@@ -1,64 +1,47 @@
+# AirHockey RL — TD3 & SAC
+
+![TD3 self-play](docs/td3_demo.gif)  
+*TD3 self-play (TD3 agent vs TD3 agent).*
+
+Train two reinforcement learning agents—**TD3** and **SAC**—to master a continuous-control **AirHockey** environment.
 
 ---
 
-### Or, do it with one PowerShell block (overwrites README and pushes)
+## 📌 What this is
+- Minimal, focused repo with TD3 and SAC training scripts  
+- Quick demo notebook to render the environment  
+- Short presentation with gameplay clips and performance plots (see **docs/**)  
 
-```powershell
-cd C:\Code\rl-hockey-homework
+---
 
-@"
-# AirHockey RL — TD3 & SAC
+## 🎯 What it does
+- Trains **TD3** and **SAC** agents on the same AirHockey task  
+- Lets you easily tweak hyperparameters (e.g., policy noise, policy delay)  
+- (Optional) Logs training runs to **Weights & Biases** for tracking  
 
-![TD3 self-play](docs/td3_demo.gif)
+---
 
-*TD3 self-play (TD3 agent vs TD3 agent).*
+## 🚀 How to use
 
-Train two reinforcement-learning agents—**TD3** and **SAC**—to play a continuous-control **AirHockey** environment.  
-The repo includes a simple environment demo, training scripts for both agents, and slides with short clips and plots.
+**Requirements:** Python **3.10+**
 
-## What it does
-- Trains TD3 and SAC agents on the same AirHockey task
-- Compares behaviors with simple tweaks (e.g., policy noise, policy delay)
-- Optionally logs runs to Weights & Biases
-
-## Quick start
-Requirements: Python 3.10+.
-
-\`\`\`bash
+Install dependencies:
+```bash
 pip install -r requirements.txt
-\`\`\`
-
-### Train TD3
-\`\`\`bash
+```bash
+Train TD3:
+```bash
 python TD3/main.py
-\`\`\`
+```bash
+Train SAC:
+```bash
+python/SAC/main.py
+```bash
+Environment demo: Open example_run.ipynb and run the cell to render a short random-action rollout.
 
-### Train SAC
-\`\`\`bash
-python SAC/main.py
-\`\`\`
+## 📂 details
+Slides with gameplay clips & results: docs/rl-hockey-presentation.pptx
+Source video for GIF (optional): docs/td3_demo.mp4
 
-> Tip: add \`--help\` to either command to see available options.
-
-## Environment demo
-Open **\`example_run.ipynb\`** and run the cells to see the environment stepping with random actions and rendering.
-
-## Results & media
-- Slides with short gameplay clips and plots: **\`docs/rl-hockey-presentation.pptx\`**
-- Demo video file (MP4): **\`docs/td3_demo.mp4\`** (source for the GIF)
-
-## Repository structure
-\`\`\`
-TD3/                    # TD3 implementation and training entry (main.py)
-SAC/                    # SAC implementation and training entry (main.py)
-hockey_env/             # environment helpers/wrappers
-dynamic_env.py          # environment orchestration, evaluation, logging hooks
-example_run.ipynb       # quick demo notebook
-docs/                   # slides, plots, demo video (td3_demo.mp4) and GIF (td3_demo.gif)
-requirements.txt
-LICENSE
-\`\`\`
-
-## License
-MIT
-"@ | Set-Content -Encoding UTF8 README.md
+## 📜 License
+MIT License
