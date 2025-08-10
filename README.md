@@ -30,11 +30,13 @@ python SAC/main.py
 ## Environment demo
 Open **`example_run.ipynb`** and run the cells to see the environment stepping with random actions and rendering.
 
+@"
 ## Results & media
-- Slides with short gameplay clips and plots: **`docs/rl-hockey-presentation.pptx`**  
-- You can add PNGs/GIFs to `docs/` and reference them here, e.g.:
-  ```md
-  ![Learning curves](docs/learning_curves.png)
+- Slides with short gameplay clips and plots: **docs/rl-hockey-presentation.pptx**
+- TD3 self-play:
+
+<video src="docs/td3_demo.mp4" controls muted loop playsinline width="640"></video>
+"@ | Add-Content -Encoding UTF8 README.md
   ```
 
 ## Repository structure
