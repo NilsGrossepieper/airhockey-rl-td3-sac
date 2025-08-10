@@ -8,14 +8,15 @@ Train two reinforcement learning agents—**TD3** and **SAC**—to master a cont
 ---
 
 ## 📌 What this is
-- Minimal, focused repo with TD3 and SAC training scripts  
+- Reinforcement learning environment for Airhockey
+- Training scripts for TD3 and SAC models  
 - Quick demo notebook to render the environment  
-- Short presentation with gameplay clips and performance plots (see **docs/**)  
+- Presentation with experimentation results (see **docs/**)  
 
 ---
 
 ## 🎯 What it does
-- Trains **TD3** and **SAC** agents on the same AirHockey task  
+- Trains **TD3** and **SAC** agents on the same AirHockey game  
 - Lets you easily tweak hyperparameters (e.g., policy noise, policy delay)  
 - (Optional) Logs training runs to **Weights & Biases** for tracking  
 
