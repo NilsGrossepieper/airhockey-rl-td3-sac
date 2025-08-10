@@ -25,18 +25,21 @@ Train two reinforcement learning agents—**TD3** and **SAC**—to master a cont
 
 **Requirements:** Python **3.10+**
 
-Install dependencies:
+**Install dependencies:**
+
 ```bash
 pip install -r requirements.txt
-```bash
-Train TD3:
+
+**Train TD3:**
+
 ```bash
 python TD3/main.py
-```bash
-Train SAC:
+
+**Train SAC:**
+
 ```bash
 python/SAC/main.py
-```bash
+
 Environment demo: Open example_run.ipynb and run the cell to render a short random-action rollout.
 
 ## 📂 details
