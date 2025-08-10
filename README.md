@@ -33,11 +33,15 @@ Open **`example_run.ipynb`** and run the cells to see the environment stepping w
 @"
 ## Results & media
 - Slides with short gameplay clips and plots: **docs/rl-hockey-presentation.pptx**
-- TD3 self-play:
+- TD3 self-play (GIF):
 
-<video src="docs/td3_demo.mp4" controls muted loop playsinline width="640"></video>
+![TD3 self-play](docs/td3_demo.gif)
 "@ | Add-Content -Encoding UTF8 README.md
-  ```
+
+git add README.md docs/td3_demo.gif
+git commit -m "docs: add TD3 self-play GIF and embed in README"
+git pull --rebase origin main
+git push origin main
 
 ## Repository structure
 ```
