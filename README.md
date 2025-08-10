@@ -1,7 +1,17 @@
-# rl-hockey-homework
+﻿# AirHockey RL  TD3 & SAC
 
-To install the packages run the following command:
+This repo shows two reinforcement-learning agents for AirHockey: **TD3** and **SAC**.
+We compare them and test the effect of **policy noise** and **policy delay**.
 
-`conda create --name <env> --file requirements.txt -c conda-forge`
+## How to run
+- TD3:  python TD3/train.py --env HockeyEnv-v0 --steps 500000 --seed 0 --policy-noise 0.2 --policy-delay 2
+- SAC:  python SAC/train.py  --env HockeyEnv-v0 --steps 500000 --seed 0
 
-The rl-hockey-presentation file offers a concise overview of the project, the conducted experiments, and their results.
+## What to look at
+- Slides (with short clips): docs/rl-hockey-presentation.pptx
+
+## Repo layout
+TD3/  SAC/  hockey_env/  docs/  requirements.txt
+
+## License
+MIT
