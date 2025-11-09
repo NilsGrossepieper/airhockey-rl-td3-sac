@@ -1,4 +1,4 @@
-# AirHockey RL — TD3 & SAC
+# AirHockey RL - TD3 & SAC
 
 ![TD3 self-play](docs/td3_demo.gif)  
 *TD3 self-play (TD3 agent vs TD3 agent).*
