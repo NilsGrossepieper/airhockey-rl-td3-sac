@@ -3,7 +3,7 @@
 ![TD3 self-play](docs/td3_demo.gif)  
 *TD3 self-play (TD3 agent vs TD3 agent).*
 
-Train two reinforcement learning agents—**TD3** and **SAC**—to master a continuous-control **AirHockey** environment.  
+Train two reinforcement learning agents-**TD3** and **SAC**-to master a continuous-control **AirHockey** environment.  
 This repo contains training scripts, demo notebooks, and experiment results.
 
 ---
